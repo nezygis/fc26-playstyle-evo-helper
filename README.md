@@ -4,8 +4,7 @@ A Tampermonkey userscript for the EA FC 26 web app that **batch-applies
 PlayStyle / PlayStyle+ evolutions to a single player** — instead of EA's
 one-at-a-time UI.
 
-> Tip: to add your demo clip, drag the `.mp4` into this README while editing it
-> on GitHub — it auto-uploads and embeds a player.
+https://github.com/user-attachments/assets/b4dc23c6-c125-436b-b42d-4a726f7d7998
 
 ## Features
 - 🔎 **Club search by name**, pre-filtered to evo-eligible rarities
