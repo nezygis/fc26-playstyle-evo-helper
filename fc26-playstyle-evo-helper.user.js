@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PlayStyle Evo Helper — FC26
 // @namespace    https://github.com/nezygis/fc26-playstyle-evo-helper
-// @version      1.0.0
+// @version      1.0.1
 // @description  Batch-apply PlayStyle / PlayStyle+ evolutions to a single player on the EA FC 26 web app, with role-based suggestions, rarity-eligibility filtering, and live caps.
 // @author       nezygis
 // @homepageURL  https://github.com/nezygis/fc26-playstyle-evo-helper
@@ -47,7 +47,7 @@
   const traitName = {}; // traitId -> display name (base name, no '+')
   PS.forEach((x) => (traitName[x.r - TRAIT_OFFSET] = x.n));
 
-  // Recommended playstyles per position/role (fut.gg). Top 3 -> PS+, rest -> base.
+  // Recommended playstyles per position/role. Top 3 -> PS+, rest -> base.
   const ROLES = {"ST":{"Advanced Forward":["Finesse Shot","Low Driven Shot","Rapid","Incisive Pass","Gamechanger","Quick Step","Technical","Tiki Taka","First Touch","Press Proven","Enforcer"],"Target Forward":["Finesse Shot","Enforcer","Precision Header","Low Driven Shot","Incisive Pass","Rapid","First Touch","Gamechanger","Tiki Taka","Press Proven","Pinged Pass"],"Poacher":["Finesse Shot","Low Driven Shot","Rapid","Incisive Pass","First Touch","Gamechanger","Quick Step","Technical","Press Proven","Pinged Pass","Enforcer"],"False 9":["Finesse Shot","Incisive Pass","Low Driven Shot","Gamechanger","Rapid","Tiki Taka","Technical","Pinged Pass","Quick Step","Inventive","First Touch"]},"RW / LW":{"Inside Forward":["Finesse Shot","Low Driven Shot","Rapid","Quick Step","Technical","Gamechanger","Incisive Pass","Pinged Pass","Tiki Taka","First Touch","Inventive"],"Winger":["Rapid","Finesse Shot","Pinged Pass","Quick Step","Technical","Low Driven Shot","Gamechanger","Incisive Pass","Tiki Taka","First Touch","Inventive"],"Wide Playmaker":["Finesse Shot","Incisive Pass","Technical","Tiki Taka","Pinged Pass","Rapid","Low Driven Shot","Gamechanger","Press Proven","First Touch","Inventive"]},"CAM":{"Shadow Striker":["Finesse Shot","Incisive Pass","Rapid","Low Driven Shot","Technical","Quick Step","Tiki Taka","Gamechanger","First Touch","Pinged Pass","Inventive"],"Playmaker":["Finesse Shot","Incisive Pass","Low Driven Shot","Tiki Taka","Pinged Pass","Technical","Gamechanger","First Touch","Press Proven","Quick Step","Inventive"],"Classic 10":["Finesse Shot","Incisive Pass","Technical","Tiki Taka","Pinged Pass","Low Driven Shot","Gamechanger","First Touch","Press Proven","Quick Step","Inventive"],"Half Winger":["Incisive Pass","Rapid","Technical","Tiki Taka","Pinged Pass","Gamechanger","Quick Step","First Touch","Press Proven","Inventive","Low Driven Shot"]},"CM":{"Box to Box":["Incisive Pass","Pinged Pass","Intercept","Finesse Shot","Tiki Taka","Bruiser","Anticipate","Quick Step","Technical","Relentless","Press Proven"],"Playmaker":["Incisive Pass","Pinged Pass","Finesse Shot","Tiki Taka","Technical","Intercept","Low Driven Shot","Anticipate","First Touch","Quick Step","Inventive"],"Deep Lying Playmaker":["Intercept","Pinged Pass","Bruiser","Tiki Taka","Incisive Pass","Anticipate","Jockey","Quick Step","First Touch","Press Proven","Long Ball Pass"],"Holding":["Intercept","Pinged Pass","Bruiser","Tiki Taka","Anticipate","Jockey","Incisive Pass","Quick Step","First Touch","Press Proven","Long Ball Pass"],"Half Winger":["Pinged Pass","Intercept","Quick Step","Tiki Taka","Incisive Pass","Finesse Shot","Anticipate","Technical","Jockey","Bruiser","Rapid"]},"RM / LM":{"Inside Forward":["Finesse Shot","Low Driven Shot","Rapid","Quick Step","Technical","Gamechanger","Incisive Pass","Pinged Pass","Tiki Taka","First Touch","Inventive"],"Winger":["Rapid","Finesse Shot","Pinged Pass","Quick Step","Technical","Low Driven Shot","Gamechanger","Incisive Pass","Tiki Taka","First Touch","Inventive"],"Wide Playmaker":["Finesse Shot","Incisive Pass","Technical","Tiki Taka","Pinged Pass","Rapid","Low Driven Shot","Gamechanger","Press Proven","First Touch","Inventive"],"Wide Midfielder":["Rapid","Quick Step","Pinged Pass","Tiki Taka","Incisive Pass","Intercept","Anticipate","Relentless","Whipped Pass","Jockey","Press Proven"]},"CDM":{"Holding":["Intercept","Pinged Pass","Bruiser","Tiki Taka","Anticipate","Jockey","Incisive Pass","Quick Step","First Touch","Press Proven","Long Ball Pass"],"Deep Lying Playmaker":["Intercept","Pinged Pass","Bruiser","Tiki Taka","Incisive Pass","Anticipate","Jockey","Quick Step","First Touch","Press Proven","Long Ball Pass"],"Box Crasher":["Incisive Pass","Intercept","Pinged Pass","Finesse Shot","Tiki Taka","Quick Step","Bruiser","Anticipate","Technical","Press Proven","Relentless"],"Centre Half":["Intercept","Bruiser","Jockey","Anticipate","Quick Step","Block","Tiki Taka","Pinged Pass","Aerial Fortress","Slide Tackle","Long Ball Pass"],"Wide Half":["Bruiser","Intercept","Quick Step","Jockey","Anticipate","Incisive Pass","Block","Tiki Taka","Pinged Pass","Press Proven","Relentless"]},"RB / LB":{"Fullback":["Bruiser","Intercept","Quick Step","Jockey","Anticipate","Incisive Pass","Block","Tiki Taka","Pinged Pass","Press Proven","Relentless"],"Wingback":["Intercept","Pinged Pass","Quick Step","Anticipate","Bruiser","Tiki Taka","Jockey","Incisive Pass","Rapid","Relentless","Press Proven"],"Falseback":["Intercept","Pinged Pass","Anticipate","Jockey","Tiki Taka","Incisive Pass","Bruiser","Quick Step","First Touch","Press Proven","Long Ball Pass"],"Inverted Wingback":["Incisive Pass","Tiki Taka","Quick Step","Intercept","Anticipate","Rapid","Pinged Pass","Jockey","Press Proven","Relentless","Bruiser"],"Attacking Wingback":["Rapid","Quick Step","Pinged Pass","Tiki Taka","Incisive Pass","Intercept","Anticipate","Relentless","Jockey","First Touch","Bruiser"]},"CB":{"Defender":["Intercept","Bruiser","Anticipate","Jockey","Quick Step","Block","Pinged Pass","Aerial Fortress","Slide Tackle","Tiki Taka","Press Proven"],"Stopper":["Intercept","Bruiser","Anticipate","Jockey","Quick Step","Block","Slide Tackle","Tiki Taka","Pinged Pass","Relentless","Aerial Fortress"],"Wide Back":["Intercept","Anticipate","Quick Step","Jockey","Bruiser","Block","Pinged Pass","Aerial Fortress","Slide Tackle","Tiki Taka","Press Proven"],"Ball Playing Defender":["Intercept","Bruiser","Anticipate","Jockey","Quick Step","Block","Pinged Pass","Tiki Taka","First Touch","Press Proven","Aerial Fortress"]},"GK":{"Goalkeeper":["Far Reach","Footwork","1v1 Close Down","Deflector","Cross Claimer","Far Throw","Pinged Pass","Long Ball Pass","Tiki Taka","Press Proven","First Touch"],"Ball Playing":["Far Reach","Footwork","1v1 Close Down","Deflector","Cross Claimer","Pinged Pass","Far Throw","Long Ball Pass","Tiki Taka","Press Proven","First Touch"],"Sweeper Keeper":["Far Reach","Footwork","1v1 Close Down","Deflector","Cross Claimer","Pinged Pass","Far Throw","Long Ball Pass","Tiki Taka","Press Proven","First Touch"]}};
   const psByName = {}, pspByName = {};
   PS.forEach((x) => (psByName[x.n] = x));
@@ -56,7 +56,7 @@
   // rareflag ids these evos can be applied to (defaults the club-search filter).
   const ELIGIBLE_RARITIES = [30,94,98,109];
 
-  // position id (UTLocalizationUtil) -> fut.gg role group
+  // position id (UTLocalizationUtil) -> role group
   const POS_GROUP = {
     0: "GK", 1: "CB", 2: "RB / LB", 3: "RB / LB", 4: "CB", 5: "CB", 6: "CB", 7: "RB / LB", 8: "RB / LB",
     9: "CDM", 10: "CDM", 11: "CDM", 12: "RM / LM", 13: "CM", 14: "CM", 15: "CM", 16: "RM / LM",
@@ -72,6 +72,7 @@
     selected: new Set(), // slotIds
     running: false, abort: false,
     rarities: new Set(), // allowed rareflags for club search; empty = all
+    clubItems: null, // players we loaded ourselves (full club / eligible rarities)
   };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const ACAD = () => (window.services && window.services.Academy) || (typeof services !== "undefined" ? services.Academy : null);
@@ -142,9 +143,93 @@
 
   // --- Player helpers -------------------------------------------------------
   function clubPlayers() {
-    const c = CLUB(); if (!c) return [];
-    const items = c.items || (c.getItems ? c.getItems() : []);
+    // Prefer the items we loaded ourselves (full / eligible); fall back to whatever
+    // the app has cached (usually just the active squad).
+    let items = state.clubItems;
+    if (!items || !items.length) { const c = CLUB(); items = (c && (c.items || (c.getItems ? c.getItems() : []))) || []; }
     return (items || []).filter((it) => { try { return it && it.isPlayer && it.isPlayer(); } catch (_) { return false; } });
+  }
+  // Build a club search criteria (UTSearchCriteriaDTO), optionally rarity-filtered.
+  function makeClubCriteria(offset, count, rarities) {
+    const Ctor = window.UTSearchCriteriaDTO;
+    if (!Ctor) return null;
+    const c = new Ctor();
+    try { c.type = (window.SearchType && window.SearchType.PLAYER) || "player"; } catch (_) {}
+    try { c.count = count; } catch (_) {}
+    try { c.offset = offset; } catch (_) {}
+    if (rarities && rarities.length) { try { c.rarities = rarities.slice(); } catch (_) {} }
+    return c;
+  }
+  function setClubStatus(text, cls) {
+    if (els.clubstat) { els.clubstat.textContent = text; els.clubstat.className = "clubstat " + (cls || ""); }
+  }
+  // The active squad being loaded is a good "app is ready for club searches" signal.
+  function getActiveSquad() {
+    const R = window.repositories, S = window.services;
+    const tries = [
+      () => R.Squad && R.Squad.getActiveSquad && R.Squad.getActiveSquad(),
+      () => R.Squad && R.Squad.getCurrentSquad && R.Squad.getCurrentSquad(),
+      () => S.Squad && S.Squad.getActiveSquad && S.Squad.getActiveSquad(),
+      () => R.Squad && R.Squad.activeSquad,
+    ];
+    for (const f of tries) { try { const sq = f(); if (sq) return sq; } catch (_) {} }
+    return null;
+  }
+  function squadReady() {
+    const sq = getActiveSquad();
+    if (!sq) return false;
+    try { if (typeof sq.getPlayers === "function") return sq.getPlayers().filter(Boolean).length >= 1; } catch (_) {}
+    try { if (Array.isArray(sq.players)) return sq.players.filter(Boolean).length >= 1; } catch (_) {}
+    return true; // squad object exists even if we can't read players
+  }
+  // Load club players via paginated search. With `rarities`, only those load.
+  // Throws if the FIRST page fails (app not ready) so the caller can retry.
+  async function loadClub(rarities) {
+    if (!(window.services && window.services.Club && window.services.Club.search)) throw new Error("Club service unavailable");
+    const all = [], seen = new Set();
+    let offset = 0, guard = 0;
+    while (guard++ < 80) {
+      const crit = makeClubCriteria(offset, 91, rarities);
+      if (!crit) throw new Error("no UTSearchCriteriaDTO");
+      let res;
+      try { res = await svcObserve(window.services.Club.search(crit)); }
+      catch (e) { if (offset === 0) throw e; break; } // first page fails -> not ready; later -> keep partial
+      const items = (res && res.response && res.response.items) || (res && res.data && res.data.items) || [];
+      if (!items.length) break;
+      let added = 0;
+      for (const it of items) { const id = it && it.id; if (id != null && !seen.has(id)) { seen.add(id); all.push(it); added++; } }
+      offset += items.length;
+      state.clubItems = all.slice();
+      setClubStatus("Club: loading… " + all.length + " players", "load");
+      if (added === 0) break;
+      await sleep(120);
+    }
+    state.clubItems = all;
+    if (els.rarpanel) els.rarpanel.dataset.built = ""; // rebuild rarity list with real counts
+    renderResults();
+    return all.length;
+  }
+  // Retry wrapper: waits/retries until the club search is accepted by the app.
+  let clubLoading = false;
+  async function startClubLoad(attempt, manual) {
+    if (clubLoading && !manual) return;
+    clubLoading = true;
+    const rarities = (ELIGIBLE_RARITIES && ELIGIBLE_RARITIES.length) ? ELIGIBLE_RARITIES : null;
+    setClubStatus("Club: loading…" + (attempt > 1 ? " (retry " + attempt + ")" : ""), "load");
+    try {
+      const n = await loadClub(rarities);
+      if (!n) throw new Error("0 players returned");
+      setClubStatus("Club: " + n + " players loaded" + (rarities ? " (eligible)" : "") + " · ↻", "ok");
+      clubLoading = false;
+    } catch (e) {
+      clubLoading = false;
+      if (attempt < 8) {
+        setClubStatus("Club: app not ready, retrying (" + attempt + ")…", "load");
+        setTimeout(() => startClubLoad(attempt + 1), 2500);
+      } else {
+        setClubStatus("Club: load failed (" + errMsg(e) + ") — click to retry", "err");
+      }
+    }
   }
   function findItemById(id) { return clubPlayers().find((it) => it.id === id || it.id === Number(id)); }
   function playerName(it) {
@@ -304,6 +389,8 @@
     #fcevo .status{font-size:11px;color:#9fb6c9;padding:2px 2px 0;min-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     #fcevo .status.ok{color:#67e08a}#fcevo .status.err{color:#ff7a6b}#fcevo .status.warn{color:#ffcf6b}#fcevo .status.head{color:#8fd6ff}#fcevo .status.dim{color:#7c8b99}
     #fcevo .count{color:#8fd6ff;font-weight:700}#fcevo .muted{color:#7c8b99}
+    #fcevo .clubstat{margin-top:6px;padding:5px 7px;border-radius:6px;font-size:11px;background:#0d141b;border:1px solid #233140;cursor:pointer}
+    #fcevo .clubstat.load{color:#ffcf6b;border-color:#5a4a1f}#fcevo .clubstat.ok{color:#67e08a;border-color:#1f5a36}#fcevo .clubstat.err{color:#ff7a6b;border-color:#5a2420}
     `;
     document.head.appendChild(s);
   }
@@ -322,6 +409,7 @@
             <button class="mini" data-act="rar" id="fcevo-rarbtn">Rarity: all ▾</button>
           </div>
           <div class="rarpanel" id="fcevo-rarpanel"></div>
+          <div class="clubstat" id="fcevo-clubstat" data-act="reloadclub" title="Click to reload the club">Club: waiting for app…</div>
           <div class="results" id="fcevo-results"></div>
         </div>
 
@@ -361,7 +449,7 @@
       root, results: q("#fcevo-results"), preview: q("#fcevo-preview"), grid: q("#fcevo-grid"),
       count: q("#fcevo-count"), status: q("#fcevo-status"), run: q('[data-act="run"]'), stop: q('[data-act="stop"]'),
       claim: q("#fcevo-claim"), delay: q("#fcevo-delay"),
-      rarbtn: q("#fcevo-rarbtn"), rarpanel: q("#fcevo-rarpanel"),
+      rarbtn: q("#fcevo-rarbtn"), rarpanel: q("#fcevo-rarpanel"), clubstat: q("#fcevo-clubstat"),
       pos: q("#fcevo-pos"), role: q("#fcevo-role"),
     };
     function q(s) { return root.querySelector(s); }
@@ -387,6 +475,7 @@
     const t = e.target.getAttribute("data-tab");
     if (t) return setTab(t);
     if (act === "min") return els.root.classList.toggle("min");
+    if (act === "reloadclub") return startClubLoad(1, true);
     if (act === "rar") return toggleRarPanel();
     if (act === "suggest") return suggest();
     if (act === "none") { current().forEach((x) => state.selected.delete(x.s)); return (renderGrid(), updateCount()); }
@@ -623,7 +712,17 @@
       if (ACAD() && CLUB()) {
         clearInterval(iv);
         if (!document.getElementById("fcevo")) build();
-        window.FCEvo = { applyEvo, claimEvo, runBatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities };
+        window.FCEvo = { applyEvo, claimEvo, runBatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad };
+        // Wait until the active squad is loaded (app ready for club searches), then
+        // load the club. Hard fallback at 15s so it can't hang; retries cover the rest.
+        setClubStatus("Club: waiting for squad…", "load");
+        let waited = 0;
+        const checkSquad = () => {
+          if (squadReady() || waited >= 15000) { clearInterval(gate); startClubLoad(1); return; }
+          waited += 200;
+        };
+        const gate = setInterval(checkSquad, 200);
+        checkSquad(); // check immediately, don't wait for the first interval
       } else if (tries > 160) { clearInterval(iv); if (!document.getElementById("fcevo")) build(); log("⚠ Academy/club not ready. Open the app & your Club tab.", "warn"); }
     }, 500);
   }
