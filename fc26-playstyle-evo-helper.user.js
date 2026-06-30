@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PlayStyle Evo Helper — FC26
 // @namespace    https://github.com/nezygis/fc26-playstyle-evo-helper
-// @version      1.0.1
+// @version      1.0.3
 // @description  Batch-apply PlayStyle / PlayStyle+ evolutions to a single player on the EA FC 26 web app, with role-based suggestions, rarity-eligibility filtering, and live caps.
 // @author       nezygis
 // @homepageURL  https://github.com/nezygis/fc26-playstyle-evo-helper
@@ -43,6 +43,12 @@
   const PSP = [{"n":"Far Reach+","s":2181,"r":335,"g":1},{"n":"Technical+","s":2184,"r":321,"g":0},{"n":"Intercept+","s":2185,"r":317,"g":0},{"n":"Tiki Taka+","s":2186,"r":312,"g":0},{"n":"Low Driven Shot+","s":2187,"r":307,"g":0},{"n":"Footwork+","s":2188,"r":332,"g":1},{"n":"Jockey+","s":2191,"r":315,"g":0},{"n":"Anticipate+","s":2196,"r":318,"g":0},{"n":"Finesse Shot+","s":2200,"r":301,"g":0},{"n":"Incisive Pass+","s":2203,"r":309,"g":0},{"n":"Quick Step+","s":2210,"r":326,"g":0},{"n":"Rapid+","s":2211,"r":322,"g":0},{"n":"Pinged Pass+","s":2213,"r":310,"g":0},{"n":"Bruiser+","s":2189,"r":329,"g":0},{"n":"Relentless+","s":2183,"r":327,"g":0},{"n":"Long Ball Pass+","s":2192,"r":311,"g":0},{"n":"Inventive+","s":2197,"r":314,"g":0},{"n":"Cross Claimer+","s":2198,"r":333,"g":1},{"n":"First Touch+","s":2201,"r":323,"g":0},{"n":"1v1 Close Down+","s":2204,"r":334,"g":1},{"n":"Trickster+","s":2206,"r":324,"g":0},{"n":"Press Proven+","s":2207,"r":325,"g":0},{"n":"Block+","s":2212,"r":316,"g":0},{"n":"Gamechanger+","s":2214,"r":308,"g":0},{"n":"Deflector+","s":2215,"r":336,"g":1},{"n":"Power Shot+","s":2216,"r":303,"g":0},{"n":"Enforcer+","s":2182,"r":330,"g":0},{"n":"Chip Shot+","s":2190,"r":302,"g":0},{"n":"Acrobatic+","s":2193,"r":306,"g":0},{"n":"Dead Ball+","s":2194,"r":304,"g":0},{"n":"Slide Tackle+","s":2195,"r":319,"g":0},{"n":"Long Throw+","s":2199,"r":328,"g":0},{"n":"Aerial Fortress+","s":2202,"r":320,"g":0},{"n":"Far Throw+","s":2205,"r":331,"g":1},{"n":"Whipped Pass+","s":2208,"r":313,"g":0},{"n":"Precision Header+","s":2209,"r":305,"g":0}];
   PS.forEach((x) => (x.kind = "PS"));
   PSP.forEach((x) => (x.kind = "PS+"));
+  // Sort both grids into one shared order (alphabetical by base name) so every
+  // playstyle sits in the same cell on the PlayStyle and PlayStyle+ tabs.
+  const baseName = (x) => x.n.replace(/\+$/, "");
+  const byBaseName = (a, b) => baseName(a).localeCompare(baseName(b));
+  PS.sort(byBaseName);
+  PSP.sort(byBaseName);
   const ALL = PS.concat(PSP);
   const traitName = {}; // traitId -> display name (base name, no '+')
   PS.forEach((x) => (traitName[x.r - TRAIT_OFFSET] = x.n));
@@ -308,7 +314,12 @@
     try { return evo.kind === "PS+" ? !!it.hasPlusPlayStyle(t) : !!it.hasBasePlayStyle(t); } catch (_) { return false; }
   }
   const evoTrait = (evo) => evo.r - TRAIT_OFFSET;
-  const iconClass = (kindIsPlus, traitId) => (kindIsPlus ? "icon_icontrait" : "icon_basetrait") + traitId;
+  // A few base-trait glyphs are blank in EA's icon font (e.g. Intercept = 16);
+  // fall back to the icontrait glyph (same symbol, colored by our CSS) so the
+  // card/chip isn't empty.
+  const MISSING_BASE_GLYPHS = new Set([16]);
+  const iconClass = (kindIsPlus, traitId) =>
+    (kindIsPlus || MISSING_BASE_GLYPHS.has(traitId) ? "icon_icontrait" : "icon_basetrait") + traitId;
   function currentPlayStyles(it) { try { return it.getPlayStyles() || []; } catch (_) { return []; } }
   // Distinct rarities present in the club: [{rf, name, count}]
   function clubRarities() {
@@ -344,7 +355,7 @@
     #fcevo .row{display:flex;gap:6px;align-items:center}
     #fcevo .sec{background:#0b1117;border:1px solid #1e2b38;border-radius:9px;padding:8px}
     #fcevo .sec h4{margin:0 0 6px;font-size:11px;color:#7fb4e6;text-transform:uppercase;letter-spacing:.04em}
-    #fcevo .results{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+    #fcevo .results{display:flex;flex-direction:column;gap:4px;margin-top:6px;max-height:240px;overflow-y:auto;padding-right:2px}
     #fcevo .rarpanel{display:none;flex-direction:column;gap:3px;margin-top:6px;max-height:240px;overflow:auto;padding:6px;background:#0a0f14;border:1px solid #233140;border-radius:7px}
     #fcevo .rarpanel.open{display:flex}
     #fcevo .rarpanel label{display:flex;align-items:center;gap:6px;font-size:11px;padding:3px 4px;border-radius:5px;cursor:pointer}
@@ -353,8 +364,12 @@
     #fcevo .pr{display:flex;align-items:center;gap:8px;padding:5px 7px;border:1px solid #20303f;border-radius:7px;cursor:pointer;background:#0d141b}
     #fcevo .pr:hover{background:#13202c}
     #fcevo .pr .ov{font-weight:800;color:#ffd27d;min-width:24px;text-align:center}
-    #fcevo .pr .nm{flex:1}#fcevo .pr .rr{font-size:10px;color:#9fb6c9}
+    #fcevo .pr .nm{flex:1}
     #fcevo .pr .gk{font-size:9px;color:#9adcff;border:1px solid #2c5872;border-radius:4px;padding:0 4px}
+    #fcevo .pr .psc{display:flex;gap:4px;white-space:nowrap}
+    #fcevo .pr .pchip{font-size:10px;font-weight:700;padding:0 5px;border-radius:6px;border:1px solid;background:#0d141b}
+    #fcevo .pr .pchip.room{color:#67e08a;border-color:#1f5a36}
+    #fcevo .pr .pchip.full{color:#ff7a6b;border-color:#5a2420}
     #fcevo .card{display:flex;gap:10px;align-items:center}
     #fcevo .card .ov{font:800 20px/1 system-ui;color:#ffd27d;min-width:40px;text-align:center}
     #fcevo .card .meta{flex:1}
@@ -446,7 +461,7 @@
       </div>`;
     document.body.appendChild(root);
     els = {
-      root, results: q("#fcevo-results"), preview: q("#fcevo-preview"), grid: q("#fcevo-grid"),
+      root, search: q("#fcevo-search"), results: q("#fcevo-results"), preview: q("#fcevo-preview"), grid: q("#fcevo-grid"),
       count: q("#fcevo-count"), status: q("#fcevo-status"), run: q('[data-act="run"]'), stop: q('[data-act="stop"]'),
       claim: q("#fcevo-claim"), delay: q("#fcevo-delay"),
       rarbtn: q("#fcevo-rarbtn"), rarpanel: q("#fcevo-rarpanel"), clubstat: q("#fcevo-clubstat"),
@@ -523,29 +538,49 @@
   }
 
   // ---- player results ----
+  const RESULT_CAP = 100;
+  function playerRow(it) {
+    const row = document.createElement("div");
+    row.className = "pr";
+    const gk = (() => { try { return it.isGK(); } catch (_) { return false; } })();
+    const np = numPlus(it), nb = numBasic(it);
+    let counts = "";
+    if (np != null || nb != null) {
+      const plusFull = (np ?? 0) >= CAP_PLUS, baseFull = (nb ?? 0) >= CAP_BASIC;
+      counts = `<span class="psc">`
+        + `<span class="pchip ${plusFull ? "full" : "room"}" title="PlayStyle+ used / cap">+${np ?? "?"}/${CAP_PLUS}</span>`
+        + `<span class="pchip ${baseFull ? "full" : "room"}" title="Basic PlayStyles used / cap">${nb ?? "?"}/${CAP_BASIC}</span>`
+        + `</span>`;
+    }
+    row.innerHTML = `<span class="ov">${it.rating ?? "?"}</span><span class="nm">${esc(playerName(it))}</span>
+      ${gk ? '<span class="gk">GK</span>' : ""}${counts}`;
+    row.addEventListener("click", () => selectPlayer(it));
+    return row;
+  }
   function renderResults() {
     const box = els.results; box.innerHTML = "";
-    if (!searchQ) { box.innerHTML = '<div class="muted" style="padding:4px">Type a name to search your club…</div>'; return; }
-    const matches = clubPlayers().filter((it) => rarityAllowed(it) && playerName(it).toLowerCase().includes(searchQ));
-    matches.sort((a, b) => (b.rating || 0) - (a.rating || 0));
-    if (!matches.length) { box.innerHTML = '<div class="muted" style="padding:4px">No matches.</div>'; return; }
-    matches.slice(0, 18).forEach((it) => {
-      const row = document.createElement("div");
-      row.className = "pr";
-      const gk = (() => { try { return it.isGK(); } catch (_) { return false; } })();
-      row.innerHTML = `<span class="ov">${it.rating ?? "?"}</span><span class="nm">${esc(playerName(it))}</span>
-        ${gk ? '<span class="gk">GK</span>' : ""}<span class="rr">${esc(rarityName(it))} · ${it.id}</span>`;
-      row.addEventListener("click", () => selectPlayer(it));
-      box.appendChild(row);
-    });
-    if (matches.length > 18) box.insertAdjacentHTML("beforeend", `<div class="muted" style="padding:4px">+${matches.length - 18} more — refine search</div>`);
+    const all = clubPlayers().filter(rarityAllowed);
+    const matches = (searchQ ? all.filter((it) => playerName(it).toLowerCase().includes(searchQ)) : all)
+      .sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    if (!matches.length) {
+      box.innerHTML = `<div class="muted" style="padding:4px">${all.length ? "No matches." : "Club still loading…"}</div>`;
+      return;
+    }
+    matches.slice(0, RESULT_CAP).forEach((it) => box.appendChild(playerRow(it)));
+    if (matches.length > RESULT_CAP) box.insertAdjacentHTML("beforeend", `<div class="muted" style="padding:4px">+${matches.length - RESULT_CAP} more — type to filter</div>`);
   }
 
   function selectPlayer(it) {
     state.item = it;
     state.selected.clear();
+    // Collapse the search dropdown so the selected player's preview is clearly
+    // in focus; reflect the pick in the search box.
+    searchQ = "";
+    if (els.search) els.search.value = playerName(it);
+    if (els.results) els.results.innerHTML = "";
     populatePositions(); // now restricted to this player's positions, preferred first
     renderPreview(); renderGrid(); updateCount();
+    if (els.preview && els.preview.scrollIntoView) els.preview.scrollIntoView({ block: "nearest" });
     const pos = playerPositionGroups(it).join(", ") || "?";
     log("🎯 Selected " + playerName(it) + " (" + it.rating + ") · " + pos + " · " + it.id, "head");
   }
