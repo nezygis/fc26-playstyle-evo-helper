@@ -414,6 +414,7 @@
     css();
     const root = document.createElement("div");
     root.id = "fcevo";
+    root.classList.add("min");
     root.innerHTML = `
       <header><b>🧬 PlayStyle Evo Helper</b><span class="sp"></span><button data-act="min">–</button></header>
       <div class="body">
