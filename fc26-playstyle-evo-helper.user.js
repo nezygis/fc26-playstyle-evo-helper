@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         PlayStyle Evo Helper — FC26
 // @namespace    https://github.com/nezygis/fc26-playstyle-evo-helper
-// @version      1.0.3
-// @description  Batch-apply PlayStyle / PlayStyle+ evolutions to a single player on the EA FC 26 web app, with role-based suggestions, rarity-eligibility filtering, and live caps.
+// @version      1.1.0
+// @description  Batch-apply PlayStyle / PlayStyle+ evolutions to one or multiple players on the EA FC 26 web app, with role-based suggestions, rarity-eligibility filtering, and live caps.
 // @author       nezygis
 // @homepageURL  https://github.com/nezygis/fc26-playstyle-evo-helper
 // @supportURL   https://github.com/nezygis/fc26-playstyle-evo-helper/issues
@@ -15,7 +15,7 @@
 // ==/UserScript==
 
 /*
- * PlayStyle Evo Helper — batch-apply PlayStyle / PlayStyle+ evolutions to one player.
+ * PlayStyle Evo Helper — batch-apply PlayStyle / PlayStyle+ evolutions to one or multiple players.
  *
  * Install: Tampermonkey → new script → paste this file → save. Open the EA FC 26
  * web app, go to the Evolutions (Academy) hub. A floating panel appears.
@@ -75,6 +75,7 @@
 
   const state = {
     item: null, // selected club item entity
+    queue: [], // multi-player queue: array of { item, selected: Set([slotIds]) }
     selected: new Set(), // slotIds
     running: false, abort: false,
     rarities: new Set(), // allowed rareflags for club search; empty = all
@@ -99,18 +100,18 @@
   const applyEvo = (slotId, itemId) => svcObserve(ACAD().addItemToSlot(slotId, itemId, undefined));
   const claimEvo = (slotId) => svcObserve(ACAD().claimSlot(slotId));
 
-  async function runBatch(slotIds, opts) {
-    if (state.running) return;
-    if (!state.item) return log("✋ No player selected.", "warn");
+  async function runBatch(slotIds, opts, targetItem) {
+    const item = targetItem || state.item;
+    if (!item) return log("✋ No player selected.", "warn");
     if (!slotIds.length) return log("✋ Nothing selected.", "warn");
-    state.running = true; state.abort = false; setRunning(true);
-    const itemId = state.item.id;
+    const itemId = item.id;
     let ok = 0, fail = 0;
-    log(`▶ ${slotIds.length} evo(s) → ${playerName(state.item)} (delay ${opts.delayMs}ms, claim=${opts.claim})`, "head");
+    const prefix = targetItem ? `[${playerName(item)}] ` : "";
+    log(`${prefix}▶ ${slotIds.length} evo(s) → ${playerName(item)} (delay ${opts.delayMs}ms, claim=${opts.claim})`, "head");
     for (let i = 0; i < slotIds.length; i++) {
-      if (state.abort) { log("⏹ Aborted.", "warn"); break; }
+      if (state.abort) { log(`${prefix}⏹ Aborted.`, "warn"); break; }
       const evo = byId(slotIds[i]);
-      const tag = `[${i + 1}/${slotIds.length}] ${evo ? evo.n : slotIds[i]}`;
+      const tag = `${prefix}[${i + 1}/${slotIds.length}] ${evo ? evo.n : slotIds[i]}`;
       try {
         const res = await applyEvo(slotIds[i], itemId);
         if (res.data && res.data.isMaximumNumberOfSlotsReached) log(`⚠ ${tag}: max active slots — claim needed`, "warn");
@@ -119,12 +120,57 @@
       } catch (e) { fail++; log(`✗ ${tag} — ${errMsg(e)}`, "err"); }
       if (i < slotIds.length - 1 && !state.abort) await sleep(opts.delayMs);
     }
+    return { ok, fail };
+  }
+
+  // Run evolutions on a single player (original flow) or multi-player queue.
+  // When queue has entries, each entry carries its own selected set of evo slotIds.
+  async function runDispatch(slotIds, opts) {
+    if (state.running) return;
+    // Build the work list: queue entries (each with own evos) or single player with current selection
+    const entries = state.queue.length
+      ? state.queue.map((qe) => ({ item: qe.item, slots: [...qe.selected] }))
+      : (state.item ? [{ item: state.item, slots: slotIds }] : []);
+    if (!entries.length) return log("✋ No player selected or queued.", "warn");
+    if (entries.every((e) => !e.slots.length)) return log("✋ Nothing selected.", "warn");
+    state.running = true; state.abort = false; setRunning(true);
+    let totalOk = 0, totalFail = 0, totalSkip = 0;
+    const multi = entries.length > 1;
+    if (multi) log(`▶▶ Multi-player batch: ${entries.length} players`, "head");
+    for (let p = 0; p < entries.length; p++) {
+      if (state.abort) { log("⏹ Aborted.", "warn"); break; }
+      const { item, slots } = entries[p];
+      if (multi) log(`━━ Player ${p + 1}/${entries.length}: ${playerName(item)} (${item.rating}) — ${slots.length} evo(s) ━━`, "head");
+      if (!slots.length) { log(`⊘ ${playerName(item)}: no evos selected, skipping`, "dim"); continue; }
+      // Filter evos: skip already-owned & over-cap for this player
+      const validSlots = slots.filter((sid) => {
+        const evo = byId(sid);
+        if (!evo) return true;
+        if (hasEvo(item, evo)) { totalSkip++; log(`⊘ ${playerName(item)}: ${evo.n} — already owned, skipping`, "dim"); return false; }
+        if (evo.kind === "PS+") {
+          const used = (numPlus(item) ?? 0);
+          if (used >= CAP_PLUS) { totalSkip++; log(`⊘ ${playerName(item)}: ${evo.n} — PS+ cap reached (${used}/${CAP_PLUS}), skipping`, "dim"); return false; }
+        } else {
+          const used = (numBasic(item) ?? 0);
+          if (used >= CAP_BASIC) { totalSkip++; log(`⊘ ${playerName(item)}: ${evo.n} — Basic cap reached (${used}/${CAP_BASIC}), skipping`, "dim"); return false; }
+        }
+        return true;
+      });
+      if (!validSlots.length) { log(`⊘ ${playerName(item)}: all evos skipped (already owned or capped)`, "dim"); continue; }
+      const res = await runBatch(validSlots, opts, multi ? item : undefined);
+      if (res) { totalOk += res.ok; totalFail += res.fail; }
+      // Delay between players
+      if (multi && p < entries.length - 1 && !state.abort) await sleep(opts.delayMs * 2);
+    }
     refreshClub();
-    // refresh preview (counts/playstyles changed)
-    try { state.item = findItemById(itemId) || state.item; } catch (_) {}
-    renderPreview(); renderGrid();
+    // Refresh preview for last-selected item
+    if (state.item) { try { state.item = findItemById(state.item.id) || state.item; } catch (_) {} }
+    // Refresh queue items
+    state.queue = state.queue.map((qe) => { try { return { item: findItemById(qe.item.id) || qe.item, selected: qe.selected }; } catch (_) { return qe; } });
+    renderPreview(); renderGrid(); renderQueue();
     state.running = false; setRunning(false);
-    log(`■ Done: ${ok} ok, ${fail} failed.`, "head");
+    const skipMsg = totalSkip ? `, ${totalSkip} skipped` : "";
+    log(`■ Done: ${totalOk} ok, ${totalFail} failed${skipMsg}${multi ? " across " + entries.length + " players" : ""}.`, "head");
   }
 
   // Mirror what the app's own academy flow does after an apply, so views pick up
@@ -406,6 +452,18 @@
     #fcevo .count{color:#8fd6ff;font-weight:700}#fcevo .muted{color:#7c8b99}
     #fcevo .clubstat{margin-top:6px;padding:5px 7px;border-radius:6px;font-size:11px;background:#0d141b;border:1px solid #233140;cursor:pointer}
     #fcevo .clubstat.load{color:#ffcf6b;border-color:#5a4a1f}#fcevo .clubstat.ok{color:#67e08a;border-color:#1f5a36}#fcevo .clubstat.err{color:#ff7a6b;border-color:#5a2420}
+    #fcevo .queue-sec{background:#0b1117;border:1px solid #1e4a2e;border-radius:9px;padding:8px}
+    #fcevo .queue-sec h4{margin:0 0 6px;font-size:11px;color:#67e08a;text-transform:uppercase;letter-spacing:.04em}
+    #fcevo .queue-list{display:flex;flex-direction:column;gap:4px}
+    #fcevo .qi{display:flex;align-items:center;gap:6px;padding:4px 7px;background:#0d1a14;border:1px solid #1e4a2e;border-radius:6px}
+    #fcevo .qi .ov{font-weight:800;color:#ffd27d;min-width:22px;text-align:center;font-size:12px}
+    #fcevo .qi .nm{flex:1;font-size:11px}
+    #fcevo .qi .qx{background:none;border:0;color:#ff7a6b;cursor:pointer;font-size:14px;padding:0 4px;line-height:1}
+    #fcevo .qi .qx:hover{color:#ff4433}
+    #fcevo .addq{background:#1a5a30;color:#67e08a;border:1px solid #2a7a40;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:11px;font-weight:700}
+    #fcevo .addq:hover{background:#1e6e38}
+    #fcevo .clearq{background:#3a1a1a;color:#ff7a6b;border:1px solid #5a2020;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:11px;font-weight:700}
+    #fcevo .clearq:hover{background:#4a2020}
     `;
     document.head.appendChild(s);
   }
@@ -429,6 +487,12 @@
         </div>
 
         <div class="sec" id="fcevo-preview" style="display:none"></div>
+
+        <div class="queue-sec" id="fcevo-queuesec" style="display:none">
+          <h4>📋 Player Queue · <span id="fcevo-qcount">0</span></h4>
+          <div class="queue-list" id="fcevo-qlist"></div>
+          <div class="row" style="margin-top:6px;justify-content:flex-end"><button class="clearq" data-act="clearq">Clear queue</button></div>
+        </div>
 
         <div class="sec">
           <h4>2 · Choose evolutions</h4>
@@ -454,7 +518,7 @@
           <span class="sp"></span><span class="count" id="fcevo-count">0 selected</span>
         </div>
         <div class="row">
-          <button class="go" data-act="run" style="flex:1">Apply selected</button>
+          <button class="go" data-act="run" id="fcevo-runbtn" style="flex:1">Apply selected</button>
           <button class="go stop" data-act="stop" style="display:none;flex:1">Stop</button>
         </div>
         <div class="status" id="fcevo-status">Ready.</div>
@@ -466,6 +530,7 @@
       claim: q("#fcevo-claim"), delay: q("#fcevo-delay"),
       rarbtn: q("#fcevo-rarbtn"), rarpanel: q("#fcevo-rarpanel"), clubstat: q("#fcevo-clubstat"),
       pos: q("#fcevo-pos"), role: q("#fcevo-role"),
+      queuesec: q("#fcevo-queuesec"), qlist: q("#fcevo-qlist"), qcount: q("#fcevo-qcount"), runbtn: q("#fcevo-runbtn"),
     };
     function q(s) { return root.querySelector(s); }
 
@@ -494,8 +559,20 @@
     if (act === "rar") return toggleRarPanel();
     if (act === "suggest") return suggest();
     if (act === "none") { current().forEach((x) => state.selected.delete(x.s)); return (renderGrid(), updateCount()); }
-    if (act === "run") return runBatch([...state.selected], { delayMs: +els.delay.value, claim: els.claim.checked });
+    if (act === "run") return runDispatch([...state.selected], { delayMs: +els.delay.value, claim: els.claim.checked });
     if (act === "stop") state.abort = true;
+    if (act === "addq") return addToQueue();
+    if (act === "clearq") return clearQueue();
+    // queue item remove (data-qrm="<id>")
+    const qrm = e.target.getAttribute("data-qrm");
+    if (qrm) return removeFromQueue(Number(qrm));
+    // queue item click to select/edit (data-qsel="<id>")
+    const qsel = e.target.closest("[data-qsel]");
+    if (qsel && !e.target.getAttribute("data-qrm")) {
+      const id = Number(qsel.getAttribute("data-qsel"));
+      const qe = state.queue.find((q) => q.item.id === id);
+      if (qe) return selectPlayer(qe.item);
+    }
   }
 
   const current = () => (tab === "PS+" ? PSP : PS);
@@ -571,8 +648,14 @@
   }
 
   function selectPlayer(it) {
+    // If selecting a player already in the queue, restore their saved selections
+    const queueEntry = state.queue.find((qe) => qe.item.id === it.id);
     state.item = it;
     state.selected.clear();
+    if (queueEntry) {
+      // Restore saved selections for this queued player
+      queueEntry.selected.forEach((s) => state.selected.add(s));
+    }
     // Collapse the search dropdown so the selected player's preview is clearly
     // in focus; reflect the pick in the search box.
     searchQ = "";
@@ -582,7 +665,63 @@
     renderPreview(); renderGrid(); updateCount();
     if (els.preview && els.preview.scrollIntoView) els.preview.scrollIntoView({ block: "nearest" });
     const pos = playerPositionGroups(it).join(", ") || "?";
-    log("🎯 Selected " + playerName(it) + " (" + it.rating + ") · " + pos + " · " + it.id, "head");
+    log("🎯 Selected " + playerName(it) + " (" + it.rating + ") · " + pos + " · " + it.id + (queueEntry ? " (restored " + queueEntry.selected.size + " evos from queue)" : ""), "head");
+  }
+
+  // ---- multi-player queue ----
+  // Each queue entry: { item: <club item>, selected: Set([slotIds]) }
+  function addToQueue() {
+    if (!state.item) return log("✋ Select a player first.", "warn");
+    if (!state.selected.size) return log("✋ Select evolutions first, then add to queue.", "warn");
+    const existing = state.queue.find((qe) => qe.item.id === state.item.id);
+    if (existing) {
+      // Update existing entry's selections
+      existing.selected = new Set(state.selected);
+      renderQueue(); renderPreview();
+      log("🔄 Updated " + playerName(state.item) + " in queue (" + existing.selected.size + " evos)", "ok");
+      return;
+    }
+    state.queue.push({ item: state.item, selected: new Set(state.selected) });
+    renderQueue(); renderPreview();
+    updateRunBtn();
+    log("➕ Added " + playerName(state.item) + " with " + state.selected.size + " evo(s) to queue (" + state.queue.length + " player" + (state.queue.length > 1 ? "s" : "") + ")", "ok");
+  }
+  function removeFromQueue(itemId) {
+    state.queue = state.queue.filter((qe) => qe.item.id !== itemId);
+    renderQueue(); renderPreview();
+    updateRunBtn();
+  }
+  function clearQueue() {
+    state.queue = [];
+    renderQueue(); renderPreview();
+    updateRunBtn();
+    log("🗑 Queue cleared.", "dim");
+  }
+  function renderQueue() {
+    if (!els.queuesec) return;
+    if (!state.queue.length) { els.queuesec.style.display = "none"; return; }
+    els.queuesec.style.display = "";
+    els.qcount.textContent = state.queue.length + " player" + (state.queue.length > 1 ? "s" : "");
+    const isActive = (qe) => state.item && state.item.id === qe.item.id;
+    els.qlist.innerHTML = state.queue.map((qe) => {
+      const it = qe.item;
+      const gk = (() => { try { return it.isGK(); } catch (_) { return false; } })();
+      const nEvos = qe.selected.size;
+      const selPlus = [...qe.selected].filter((s) => { const e = byId(s); return e && e.kind === "PS+"; }).length;
+      const selBase = nEvos - selPlus;
+      const active = isActive(qe) ? ' style="border-color:#3d8bff;background:#15314f"' : '';
+      return `<div class="qi"${active} data-qsel="${it.id}"><span class="ov">${it.rating ?? "?"}</span><span class="nm">${esc(playerName(it))}${gk ? ' <span style="color:#9adcff;font-size:9px">[GK]</span>' : ""}</span><span style="color:#8fd6ff;font-size:10px;white-space:nowrap" title="${selPlus} PS+, ${selBase} PS">${nEvos} evos</span><button class="qx" data-qrm="${it.id}" title="Remove">✕</button></div>`;
+    }).join("");
+  }
+  function updateRunBtn() {
+    if (!els.runbtn) return;
+    const n = state.queue.length;
+    if (n > 0) {
+      const totalEvos = state.queue.reduce((sum, qe) => sum + qe.selected.size, 0);
+      els.runbtn.textContent = `Apply to ${n} player${n > 1 ? "s" : ""} (${totalEvos} evos)`;
+    } else {
+      els.runbtn.textContent = "Apply selected";
+    }
   }
 
   // ---- role-based suggestion ----
@@ -638,6 +777,7 @@
     const nb = numBasic(it), np = numPlus(it);
     const basicFull = nb != null && nb >= CAP_BASIC, plusFull = np != null && np >= CAP_PLUS;
     box.style.display = "";
+    const inQueue = state.queue.find((qe) => qe.item.id === it.id);
     box.innerHTML = `
       <div class="card">
         <div class="ov">${it.rating ?? "?"}</div>
@@ -645,6 +785,7 @@
           <div class="pn">${esc(playerName(it))} ${gk ? '<span class="gk" style="font-size:10px;color:#9adcff">GK</span>' : ""}</div>
           <div class="muted">${esc(rarityName(it))} · item ${it.id}</div>
         </div>
+        <button class="addq" data-act="addq">${inQueue ? '🔄 Update in Queue (' + inQueue.selected.size + ' evos)' : '➕ Add to Queue'}</button>
       </div>
       <div class="caps">
         <div class="cap ${plusFull ? "full" : ""}"><b>${np ?? "?"}/${CAP_PLUS}</b><small>PS+ used</small></div>
@@ -747,7 +888,7 @@
       if (ACAD() && CLUB()) {
         clearInterval(iv);
         if (!document.getElementById("fcevo")) build();
-        window.FCEvo = { applyEvo, claimEvo, runBatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad };
+        window.FCEvo = { applyEvo, claimEvo, runBatch, runDispatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad, addToQueue, removeFromQueue, clearQueue };
         // Wait until the active squad is loaded (app ready for club searches), then
         // load the club. Hard fallback at 15s so it can't hang; retries cover the rest.
         setClubStatus("Club: waiting for squad…", "load");
