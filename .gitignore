@@ -1,0 +1,10 @@
+.demo-state.json
+demo-video/
+*.webm
+demo-dry.mp4
+demo-real.mp4
+df_*.png
+frame_*.png
+*-check.png
+demo-lastframe.png
+demo-final.mp4
