@@ -75,14 +75,9 @@
   PSP.forEach((x) => (pspByName[x.n.replace(/\+$/, "")] = x)); // keyed by base name
 
   // ==========================================================================
-  // Stat-weighted scoring (beta). Reorders a role's playstyles by how well THIS
-  // card's attributes + height support each one. Purely additive — it annotates,
-  // it never changes what Apply or ✨ Suggest do. Mirrors the role-weighted
-  // approach the meta sites use (fut.gg GG Rating, EasySBC): the role decides
-  // which attributes matter, each playstyle is scored on the attributes it leans
-  // on, and height nudges a handful of aerial/agility traits.
   // getSubAttributes() returns [{type, rating}]; this type->key map was confirmed
   // by matching every value against the in-game Attributes panel (all 34 line up).
+  // Used by the readAttrs() console diagnostic (FCEvo.dumpEntity()).
   const SUB_ATTR = {
     0: "acceleration", 1: "sprintspeed", 2: "agility", 3: "balance", 4: "jumping", 5: "stamina",
     6: "strength", 7: "reactions", 8: "aggression", 9: "composure", 10: "interceptions",
@@ -92,38 +87,7 @@
     26: "volleys", 27: "curve", 28: "penalties",
     29: "gkdiving", 30: "gkhandling", 31: "gkkicking", 32: "gkreflexes", 33: "gkpositioning",
   };
-  // Prettier labels for the score "why" line.
-  const ATTR_LABEL = {
-    acceleration: "accel", sprintspeed: "sprint", ballcontrol: "ball ctrl", shortpassing: "short pass",
-    longpassing: "long pass", fkaccuracy: "FK acc", defaware: "def aware", standtackle: "stand tkl",
-    slidetackle: "slide tkl", shotpower: "shot pwr", longshots: "long shots", gkdiving: "GK dive",
-    gkhandling: "GK hands", gkkicking: "GK kick", gkreflexes: "GK reflex", gkpositioning: "GK pos",
-  };
-  const labelOf = (k) => ATTR_LABEL[k] || k;
   const FACE_KEYS = ["pace", "shooting", "passing", "dribbling", "defending", "physical"];
-  // Which sub-attributes each PlayStyle (base name) leans on. Aerial traits use
-  // heading+jumping+strength (better than a raw height number, which isn't exposed
-  // on the club item anyway). Unlisted playstyles score on role-priority alone.
-  const PS_ATTR = {
-    "Rapid": ["acceleration", "sprintspeed"], "Quick Step": ["acceleration", "agility"],
-    "Relentless": ["stamina", "sprintspeed"], "Trickster": ["dribbling", "agility", "ballcontrol"],
-    "Technical": ["dribbling", "ballcontrol", "agility"], "First Touch": ["ballcontrol", "composure"],
-    "Finesse Shot": ["finishing", "curve"], "Low Driven Shot": ["finishing", "shotpower"],
-    "Power Shot": ["shotpower", "strength"], "Chip Shot": ["finishing", "composure"],
-    "Dead Ball": ["fkaccuracy", "curve"], "Precision Header": ["heading", "jumping"],
-    "Acrobatic": ["agility", "volleys", "finishing"], "Incisive Pass": ["shortpassing", "vision"],
-    "Pinged Pass": ["shortpassing", "longpassing"], "Long Ball Pass": ["longpassing", "vision"],
-    "Whipped Pass": ["crossing", "curve"], "Tiki Taka": ["shortpassing", "ballcontrol"],
-    "Inventive": ["vision", "shortpassing"], "Gamechanger": ["vision", "dribbling"],
-    "Intercept": ["interceptions", "defaware"], "Anticipate": ["defaware", "reactions"],
-    "Slide Tackle": ["slidetackle", "defaware"], "Block": ["defaware", "strength"],
-    "Jockey": ["defaware", "agility"], "Bruiser": ["strength", "aggression"],
-    "Enforcer": ["strength", "aggression"], "Aerial Fortress": ["heading", "jumping", "strength"],
-    "Press Proven": ["stamina", "aggression"],
-    "Far Reach": ["gkreflexes", "gkpositioning"], "Footwork": ["gkdiving", "gkreflexes"],
-    "1v1 Close Down": ["gkpositioning", "gkreflexes"], "Deflector": ["gkreflexes", "gkhandling"],
-    "Cross Claimer": ["gkhandling", "jumping"], "Far Throw": ["gkkicking", "strength"],
-  };
   // Read a card's attributes as normalized 0..1 values. Prefers the fine-grained
   // sub-attributes (getSubAttributes); falls back to the 6 face stats, then to none
   // (scoring then uses role consensus only). _coverage reflects what resolved.
@@ -144,22 +108,6 @@
     out._sub = subFound > 0;
     out._coverage = subFound > 0 ? Math.min(1, subFound / 29) : faceFound / 6;
     return out;
-  }
-  // Score a candidate playstyle for a card in a role: {score 0..100, why}. Blends
-  // the role-consensus rank (from the fut.gg-derived list) with how well the card's
-  // relevant sub-attributes support the playstyle.
-  function scoreEvo(it, baseName, idx, listLen, attrs) {
-    const prior = listLen ? (listLen - idx) / listLen : 0.5; // role consensus rank
-    let fit = 0.6, why = "role rank #" + (idx + 1), topKey = null, topVal = 0;
-    const keys = PS_ATTR[baseName];
-    if (attrs._coverage > 0 && keys) {
-      let sum = 0, n = 0;
-      keys.forEach((k) => { const v = attrs[k]; if (v != null) { sum += v; n++; if (v > topVal) { topVal = v; topKey = k; } } });
-      if (n) fit = sum / n;
-    }
-    const score = Math.round(Math.max(0, Math.min(100, 100 * (0.5 * prior + 0.5 * fit))));
-    if (topKey) why = labelOf(topKey) + " " + Math.round(topVal * 99);
-    return { score, why };
   }
 
   // rareflag ids these evos can be applied to (defaults the club-search filter).
@@ -262,12 +210,12 @@
         }
       }
     } catch (_) {}
-    renderPreview(); renderGrid(); updateCount(); renderMetaRank();
+    renderPreview(); renderGrid(); updateCount();
     // In-place read can still be stale — EA only reflects an applied evo after a
     // server re-fetch. Reload so the new playstyles actually show.
     if (ok > 0) {
       try { await reloadAndReselect(itemId); } catch (_) {}
-      renderPreview(); renderGrid(); updateCount(); renderMetaRank();
+      renderPreview(); renderGrid(); updateCount();
     }
     state.running = false; setRunning(false);
     log(`■ Done: ${ok} ok, ${fail} failed.`, "head");
@@ -299,7 +247,7 @@
       try { await reloadAndReselect(focusId); } catch (_) {}
     }
     state.queue = []; // done — clear the queue
-    renderList(); renderQueue(); renderPreview(); renderGrid(); updateCount(); renderMetaRank(); updateRunBtn();
+    renderList(); renderQueue(); renderPreview(); renderGrid(); updateCount(); updateRunBtn();
     state.running = false; setRunning(false);
     log(`■ Done: ${totalOk} ok, ${totalFail} failed across ${entries.length} player${multi ? "s" : ""}.`, "head");
   }
@@ -740,9 +688,6 @@
     #fcevo .grid{display:flex;flex-direction:column;gap:8px}
     #fcevo .gcat-h{font:600 9px/1 var(--mono);letter-spacing:.2em;text-transform:uppercase;color:var(--ash);margin:0 0 4px;padding-bottom:3px;border-bottom:1px solid var(--line)}
     #fcevo .gcat-row{display:flex;flex-wrap:wrap;gap:3px 2px}
-    #fcevo .metarank h4{margin:0 0 3px;font:600 10px/1 var(--mono);color:var(--ash);text-transform:uppercase;letter-spacing:.2em;display:flex;align-items:baseline;gap:8px}
-    #fcevo .metarank h4 .who{color:var(--bone);letter-spacing:.02em}
-    #fcevo .metarank code{background:var(--char2);padding:1px 4px;font-family:var(--mono)}
     #fcevo .mlist{display:flex;flex-direction:column;gap:0;max-height:230px;overflow:auto}
     #fcevo .mrow{display:grid;grid-template-columns:1fr 44px 26px;grid-template-areas:"n bar sc" "why bar sc";gap:0 9px;align-items:center;padding:7px 2px;border:0;border-bottom:1px solid var(--line)}
     #fcevo .mrow.dim{opacity:.42}
@@ -796,14 +741,6 @@
     #fcevo .mini:hover{color:var(--bone);border-color:var(--ash)}
     #fcevo .status{font:11px/1.4 var(--mono);color:var(--ash);padding:2px 0 0;min-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     #fcevo .status.ok{color:var(--good)}#fcevo .status.err{color:var(--bad)}#fcevo .status.warn{color:var(--warn)}#fcevo .status.head{color:var(--acc)}#fcevo .status.dim{color:var(--ash)}
-    #fcevo .statusbar{display:flex;align-items:center;gap:8px}#fcevo .statusbar .status{flex:1}
-    #fcevo .logtoggle{background:transparent;color:var(--ash);border:1px solid var(--line2);border-radius:0;padding:3px 8px;cursor:pointer;font:600 9px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;white-space:nowrap}
-    #fcevo .logtoggle:hover{color:var(--bone)}
-    #fcevo .logwrap{display:none;background:var(--char);border:1px solid var(--line);margin-top:6px}
-    #fcevo .logwrap.open{display:block}
-    #fcevo .logpane{max-height:120px;overflow:auto;padding:7px 9px;font:11px/1.5 var(--mono)}
-    #fcevo .logpane .ln{white-space:pre-wrap;word-break:break-word}
-    #fcevo .logpane .ln.ok{color:var(--good)}#fcevo .logpane .ln.err{color:var(--bad)}#fcevo .logpane .ln.warn{color:var(--warn)}#fcevo .logpane .ln.head{color:var(--acc)}#fcevo .logpane .ln.dim{color:var(--ash)}
     #fcevo .count{color:var(--bone);font-weight:700;font-variant-numeric:tabular-nums}#fcevo .count.over{color:var(--bad)}#fcevo .muted{color:var(--ash)}
     #fcevo .clubstat{margin-top:8px;padding:7px 9px;font:10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.08em;background:var(--char);border:1px solid var(--line);border-left:2px solid var(--line2);cursor:pointer}
     #fcevo .clubstat.load{color:var(--warn);border-left-color:var(--warn)}#fcevo .clubstat.ok{color:var(--good);border-left-color:var(--good)}#fcevo .clubstat.err{color:var(--bad);border-left-color:var(--bad)}
@@ -812,9 +749,6 @@
     /* accent diamond = a Suggest pick; help badge */
     #fcevo .sug{display:inline-block;width:6px;height:6px;background:var(--acc);transform:rotate(45deg);margin:0 3px 0 6px;vertical-align:middle}
     #fcevo .tag-own{font:8px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--ash);border:1px solid var(--line2);padding:1px 4px;margin-left:7px;vertical-align:middle}
-    #fcevo .metarank h4 .help{margin-left:auto;align-self:center;display:inline-flex;align-items:center;justify-content:center;
-      width:15px;height:15px;border:1px solid var(--line2);color:var(--ash);font:700 9px/1 var(--mono);cursor:help}
-    #fcevo .metarank h4 .help:hover{color:var(--acc);border-color:var(--acc)}
     /* tooltip (attached to body so the panel's overflow can't clip it) */
     #fcevo-tip{position:fixed;z-index:2147483647;max-width:232px;background:#0b0f14;border:1px solid #394653;
       padding:9px 11px;pointer-events:none;box-shadow:0 16px 38px -14px #000;font:11px/1.45 -apple-system,"Helvetica Neue",Arial,sans-serif;color:#c4ccd4}
@@ -877,8 +811,6 @@
           <div class="grid" id="fcevo-grid"></div>
         </div>
 
-        <div class="sec metarank" id="fcevo-metarank" style="display:none"></div>
-
         <div class="opts">
           <span class="count" id="fcevo-count">0 selected</span>
         </div>
@@ -887,20 +819,16 @@
           <button class="mini" data-act="clearsel" id="fcevo-clearsel" style="display:none">Clear</button>
           <button class="go stop" data-act="stop" style="display:none;flex:1">Stop</button>
         </div>
-        <div class="statusbar">
-          <div class="status" id="fcevo-status">Ready.</div>
-          <button class="logtoggle" data-act="logtoggle" title="Show/hide the full run log">Log ▾</button>
-        </div>
-        <div class="logwrap" id="fcevo-logwrap"><div class="logpane" id="fcevo-logpane"></div></div>
+        <div class="status" id="fcevo-status">Ready.</div>
       </div>`;
     document.body.appendChild(root);
     els = {
       root, search: q("#fcevo-search"), preview: q("#fcevo-preview"), grid: q("#fcevo-grid"),
       count: q("#fcevo-count"), status: q("#fcevo-status"), run: q('[data-act="run"]'), stop: q('[data-act="stop"]'),
-      claim: q("#fcevo-claim"), delay: q("#fcevo-delay"), logwrap: q("#fcevo-logwrap"), logpane: q("#fcevo-logpane"),
+      claim: q("#fcevo-claim"), delay: q("#fcevo-delay"),
       settings: q("#fcevo-settings"), startmin: q("#fcevo-startmin"),
       rarbtn: q("#fcevo-rarbtn"), rarpanel: q("#fcevo-rarpanel"), clubstat: q("#fcevo-clubstat"),
-      pos: q("#fcevo-pos"), role: q("#fcevo-role"), metarank: q("#fcevo-metarank"), autosync: q("#fcevo-autosync"),
+      pos: q("#fcevo-pos"), role: q("#fcevo-role"), autosync: q("#fcevo-autosync"),
       runbtn: q("#fcevo-runbtn"), clearsel: q("#fcevo-clearsel"), pickhdr: q("#fcevo-pickhdr"), autosyncrow: q("#fcevo-autosyncrow"),
       evosec: q("#fcevo-evosec"), list: q("#fcevo-list"),
       queuesec: q("#fcevo-auto"), qlist: q("#fcevo-qlist"), qcount: q("#fcevo-qcount"),
@@ -919,7 +847,6 @@
     q("#fcevo-search").addEventListener("focus", (e) => { if (state.item) e.target.select(); });
     q("#fcevo-filter").addEventListener("input", (e) => { filter = e.target.value.toLowerCase(); renderGrid(); });
     els.pos.addEventListener("change", populateRoles);
-    els.role.addEventListener("change", renderMetaRank);
     // Re-check glyphs once the EA icon font finishes loading (avoids a flash of
     // initials on first paint before the font is ready).
     try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(markGlyphs); } catch (_) {}
@@ -940,7 +867,6 @@
     if (typeof prefs.claim === "boolean") els.claim.checked = prefs.claim;
     if (prefs.pos && prefs.pos.left) { root.style.right = "auto"; root.style.left = prefs.pos.left; root.style.top = prefs.pos.top; }
     if (prefs.startMin) { root.classList.add("min"); const mb = root.querySelector('[data-act="min"]'); if (mb) mb.title = "Expand"; }
-    if (prefs.logOpen) { els.logwrap.classList.add("open"); const lt = root.querySelector('[data-act="logtoggle"]'); if (lt) lt.textContent = "Log ▴"; }
     els.delay.addEventListener("change", () => savePrefs({ delay: +els.delay.value }));
     els.claim.addEventListener("change", () => savePrefs({ claim: els.claim.checked }));
     els.startmin.checked = !!prefs.startMin;
@@ -975,7 +901,6 @@
     if (t) return setTab(t);
     if (act === "min") { const mn = els.root.classList.toggle("min"); e.target.closest("button").title = mn ? "Expand" : "Collapse"; if (mn) closeSettings(); return; }
     if (act === "settings") { els.settings.style.display = els.settings.style.display === "none" ? "" : "none"; return; }
-    if (act === "logtoggle") { const o = els.logwrap.classList.toggle("open"); e.target.textContent = o ? "Log ▴" : "Log ▾"; savePrefs({ logOpen: o }); return; }
     if (act === "reloadclub") return startClubLoad(1, true);
     if (act === "rar") return toggleRarPanel();
     if (act === "suggest") return suggest();
@@ -1265,7 +1190,7 @@
     if (els.search) els.search.value = playerName(it);
     renderList();
     populatePositions(); // now restricted to this player's positions, preferred first
-    renderPreview(); renderGrid(); updateCount(); renderMetaRank();
+    renderPreview(); renderGrid(); updateCount();
     if (els.preview && els.preview.scrollIntoView) els.preview.scrollIntoView({ block: "nearest" });
     const pos = playerPositionGroups(it).join(", ") || "?";
     log("🎯 Selected " + playerName(it) + " (" + it.rating + ") · " + pos + " · " + it.id, "head");
@@ -1314,7 +1239,7 @@
     state.selected.clear();
     slots.forEach((s) => state.selected.add(s));
     setTab(idxTab());
-    renderGrid(); updateCount(); renderMetaRank();
+    renderGrid(); updateCount();
     log(`✨ ${pos} · ${role}: preselected ${slots.length}${owned ? `, ${owned} already owned` : ""}${skip.length ? `, skipped ${skip.length}` : ""}. Tweak freely, then Apply.`, "head");
     if (skip.length) log("   skipped: " + skip.join(", "), "dim");
   }
@@ -1358,12 +1283,11 @@
     els.evosec.style.display = auto ? "none" : "";
     els.queuesec.style.display = "none"; // renderQueue re-shows it in Auto when non-empty
     els.preview.style.display = auto ? "none" : (state.item ? "" : "none");
-    els.metarank.style.display = "none"; // renderMetaRank re-shows it in single mode
     if (els.autosyncrow) els.autosyncrow.style.display = auto ? "none" : "";
     if (els.clearsel) els.clearsel.style.display = auto ? "" : "none"; // clears the queue (auto only)
     if (els.pickhdr) els.pickhdr.textContent = auto ? "Click players to queue" : "Select from club";
     renderList(); // one shared list; click = select (single) or queue (auto)
-    if (auto) renderQueue(); else { renderPreview(); renderGrid(); updateCount(); renderMetaRank(); }
+    if (auto) renderQueue(); else { renderPreview(); renderGrid(); updateCount(); }
     updateRunBtn();
   }
   function updateRunBtn() {
@@ -1426,43 +1350,6 @@
     markGlyphs();
   }
 
-  // Build the ranked list for the selected player + role, sorted by stat score.
-  function metaRankData() {
-    if (!state.item) return null;
-    const pos = els.pos.value, role = els.role.value;
-    if (!pos || !role || !(ROLES[pos] && ROLES[pos][role])) return null;
-    const it = state.item, gk = isGKItem(it), attrs = readAttrs(it), list = ROLES[pos][role];
-    const rows = list.map((name, idx) => {
-      const evoBase = psByName[name], evoPlus = pspByName[name];
-      const gkOnly = (evoBase && evoBase.g) || (evoPlus && evoPlus.g);
-      return Object.assign({ name, idx, owned: !!(evoBase && hasEvo(it, evoBase)), disabled: !!gkOnly && !gk },
-        scoreEvo(it, name, idx, list.length, attrs));
-    }).sort((a, b) => b.score - a.score);
-    return { rows, coverage: attrs._coverage, suggested: new Set(list.slice(0, 3)) };
-  }
-  function renderMetaRank() {
-    const box = els.metarank; if (!box) return;
-    const data = metaRankData();
-    if (!data) { box.style.display = "none"; return; }
-    box.style.display = "";
-    const note = data.coverage === 0
-      ? `No attributes readable on this card — ranking by role consensus only. Run <code>FCEvo.dumpEntity()</code> in the console and share the output to map fields.`
-      : `coverage ${Math.round(data.coverage * 100)}% · <i class="sug"></i> = Suggest's PS+ picks`;
-    const rows = data.rows.map((r) => {
-      const sug = data.suggested.has(r.name) ? `<i class="sug"></i>` : "";
-      const own = r.owned ? `<span class="tag-own">owned</span>` : "";
-      return `<div class="mrow ${r.disabled || r.owned ? "dim" : ""}" data-tip="${esc(dispName(r.name))} · ${r.score}|${esc(psDesc(r.name))}">
-        <span class="mn">${esc(dispName(r.name))}${sug}${own}</span>
-        <span class="mbar"><i style="width:${r.score}%"></i></span>
-        <span class="msc">${r.score}</span>
-        <span class="mwhy">${esc(r.why)}</span></div>`;
-    }).join("");
-    // Name the card the ranking is for, so a stale panel from a previously
-    // selected player can't be mistaken for the current one.
-    const who = `<span class="who">${esc(playerName(state.item))} (${state.item.rating ?? "?"})</span>`;
-    const help = `<span class="help" data-tip="Stat rank|Ranks this role's playstyles by how well ${esc(playerName(state.item))}'s own sub-attributes support each one, blended evenly with fut.gg's role order. The bar is the 0&ndash;100 score; the caption is the top attribute driving it. Advisory only — it never changes what Apply does.">?</span>`;
-    box.innerHTML = `<h4><span class="ix">03</span> Stat rank ${who}${help}</h4><div class="muted" style="padding:2px 0 8px;text-transform:none;font-family:var(--mono);font-size:10px;letter-spacing:.04em">${note}</div><div class="mlist">${rows}</div>`;
-  }
   // Dump a player entity so the obfuscated attribute field names can be mapped.
   function dumpEntity() {
     const it = state.item;
@@ -1613,24 +1500,12 @@
 
   function setRunning(on) { els.run.disabled = on; els.stop.style.display = on ? "" : "none"; els.run.style.display = on ? "none" : ""; if (els.clearsel) els.clearsel.style.display = (on || state.mode !== "auto") ? "none" : ""; }
 
-  // Latest message shows in the status line; full history accrues in the log pane
-  // (and the console). The pane keeps the last 200 lines and auto-scrolls unless
-  // the user has scrolled up to read back.
+  // Latest message shows in the status line (full history goes to the console).
   // Strip any leading status glyph/emoji — state is conveyed by colour, not icons.
   const deglyph = (s) => String(s).replace(/^(?:\p{Extended_Pictographic}|[\u2190-\u21FF\u2300-\u27FF\u2900-\u29FF\u2B00-\u2BFF\uFE0F\u200D])+\s*/u, "");
   function log(msg, cls) {
     const shown = deglyph(msg);
     if (els.status) { els.status.textContent = shown; els.status.className = "status " + (cls || ""); }
-    if (els.logpane) {
-      const pane = els.logpane;
-      const atBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 24;
-      const ln = document.createElement("div");
-      ln.className = "ln " + (cls || "");
-      ln.textContent = shown;
-      pane.appendChild(ln);
-      while (pane.childElementCount > 200) pane.removeChild(pane.firstChild);
-      if (atBottom) pane.scrollTop = pane.scrollHeight;
-    }
     (cls === "err" ? console.error : cls === "warn" ? console.warn : console.log)("[FCEvo]", msg);
   }
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -1694,7 +1569,7 @@
       if (ACAD() && CLUB()) {
         clearInterval(iv);
         if (!document.getElementById("fcevo")) build();
-        window.FCEvo = { applyEvo, claimEvo, runBatch, runDispatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad, readAttrs, scoreEvo, dumpEntity, openEntity, detectOpenPlayer, findOpenPlayer, freshItemById, reloadAndReselect, setAutoSync, setMode, autoResolveRole, suggestedSlots, toggleQueue, clearQueue, requestRun };
+        window.FCEvo = { applyEvo, claimEvo, runBatch, runDispatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad, readAttrs, dumpEntity, openEntity, detectOpenPlayer, findOpenPlayer, freshItemById, reloadAndReselect, setAutoSync, setMode, autoResolveRole, suggestedSlots, toggleQueue, clearQueue, requestRun };
         // Wait until the active squad is loaded (app ready for club searches), then
         // load the club. Hard fallback at 15s so it can't hang; retries cover the rest.
         setClubStatus("Club: waiting for squad…", "load");
