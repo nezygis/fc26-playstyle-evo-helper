@@ -38,6 +38,17 @@ Don't want to install Tampermonkey? Load the tool on demand with a bookmarklet �
 
 Changes show in-game without a page reload.
 
+## Contributing
+Contributions are welcome! Small fixes and visual / UX improvements — go ahead
+and open a pull request directly. For anything larger (new features, behavior
+changes, bigger refactors), please **open an issue first** so we can discuss the
+approach before you spend time on it.
+
+## License
+[MIT](LICENSE) — free to use, modify, and share, as long as you keep the
+copyright / attribution notice (credit **nezygis** and link back to this
+project).
+
 ## ⚠️ Disclaimer
 Automating the EA FC web app is **against EA's Terms of Service** and can get
 your account banned. Use at your own risk. This is an unofficial fan tool, not
