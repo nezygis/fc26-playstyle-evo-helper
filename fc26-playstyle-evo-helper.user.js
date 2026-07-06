@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PlayStyle Evo Helper — FC26
 // @namespace    https://github.com/nezygis/fc26-playstyle-evo-helper
-// @version      2.0.0
+// @version      2.0.1
 // @description  Batch-apply PlayStyle / PlayStyle+ evolutions on the EA FC 26 web app. Single mode (one player, hand-pick) or Bulk mode (click players to queue and evolve many at once).
 // @author       nezygis
 // @homepageURL  https://github.com/nezygis/fc26-playstyle-evo-helper
@@ -593,11 +593,13 @@
     const s = document.createElement("style");
     s.textContent = `
     #fcevo{--ink:#0b0f14;--char:#141b23;--char2:#1d2732;--line:#28323d;--line2:#394653;
-      --bone:#e7edf3;--ash:#899;--acc:#33d6c1;--acc-ink:#052420;--good:#4fd08a;--bad:#ff6b6b;--warn:#f2c14e;
-      --gold1:#f6d879;--gold2:#c9942f;--mono:ui-monospace,Menlo,Consolas,monospace;--grot:-apple-system,"Helvetica Neue",Arial,sans-serif;
+      --bone:#e7edf3;--ash:#a4b3c1;--acc:#33d6c1;--acc-ink:#052420;--good:#4fd08a;--bad:#ff6b6b;--warn:#f2c14e;
+      --gold1:#f6d879;--gold2:#c9942f;--grot:-apple-system,"Helvetica Neue",Arial,sans-serif;--mono:var(--grot);
       position:fixed;top:54px;right:16px;width:min(384px, calc(100vw - 20px));max-height:90vh;z-index:2147483647;background:var(--ink);color:var(--bone);
-      font:12px/1.45 var(--grot);border:1px solid var(--line2);box-shadow:0 26px 64px -24px #000;display:flex;flex-direction:column;overflow:hidden}
+      font:12.5px/1.45 var(--grot);border:1px solid var(--line2);box-shadow:0 26px 64px -24px #000;display:flex;flex-direction:column;overflow:hidden}
     #fcevo *{box-sizing:border-box}
+    /* readability: keep the HUD look, but no ALL-CAPS / wide tracking (mixed case reads faster) */
+    #fcevo, #fcevo *{text-transform:none !important;letter-spacing:normal !important}
     #fcevo select,#fcevo input{min-width:0}
     #fcevo header{display:flex;align-items:center;gap:9px;padding:12px 13px;background:var(--char);border-bottom:1px solid var(--line);cursor:move;user-select:none}
     #fcevo header .wm{font-weight:800;font-size:12px;letter-spacing:.16em;text-transform:uppercase}
@@ -642,7 +644,7 @@
     #fcevo .pr:focus{outline:none;background:var(--char2);box-shadow:inset 2px 0 0 var(--acc)}
     #fcevo .pr .ov{font:800 15px/1 var(--grot);color:var(--bone);min-width:26px;text-align:center;font-variant-numeric:tabular-nums}
     #fcevo .pr .nm{flex:1;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    #fcevo .pr .gk{font:9px/1.5 var(--mono);color:var(--acc);border:1px solid var(--line2);padding:1px 4px;letter-spacing:.08em}
+    #fcevo .pr .gk{font:10px/1.5 var(--grot);color:var(--acc);border:1px solid var(--line2);padding:1px 5px}
     #fcevo .pr .psc{display:flex;gap:5px;white-space:nowrap;font-family:var(--mono);flex:none}
     #fcevo .pr .pchip{font-size:10px;font-weight:700;padding:1px 5px;border:1px solid;font-variant-numeric:tabular-nums}
     #fcevo .pr .pchip.room{color:var(--good);border-color:#2f5a2a}
@@ -655,7 +657,7 @@
     #fcevo .cap{flex:1;background:transparent;border:0;border-right:1px solid var(--line);padding:7px 8px;text-align:left}
     #fcevo .cap:last-child{border-right:0}
     #fcevo .cap b{font:800 17px/1 var(--grot);font-variant-numeric:tabular-nums}#fcevo .cap.full b{color:var(--bad)}
-    #fcevo .cap small{color:var(--ash);display:block;font:9px/1.6 var(--mono);text-transform:uppercase;letter-spacing:.12em}
+    #fcevo .cap small{color:var(--ash);display:block;font:10.5px/1.5 var(--grot)}
     #fcevo .modetabs{display:flex;gap:0;padding:0 12px;border-bottom:1px solid var(--line);background:var(--char)}
     #fcevo .modetabs button{flex:1;background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ash);padding:9px 6px;cursor:pointer;
       font:700 11px/1 var(--grot);text-transform:uppercase;letter-spacing:.16em;margin-bottom:-1px}
@@ -685,7 +687,7 @@
     #fcevo .qps .chip.noglyph::after{content:attr(data-ini);font:800 8px var(--grot);color:var(--bone)}
     #fcevo .qps .chip.ic{border-color:#7d6320;background:rgba(155,120,25,.14);color:var(--gold1)}
     #fcevo .grid{display:flex;flex-direction:column;gap:8px}
-    #fcevo .gcat-h{font:600 9px/1 var(--mono);letter-spacing:.2em;text-transform:uppercase;color:var(--ash);margin:0 0 4px;padding-bottom:3px;border-bottom:1px solid var(--line)}
+    #fcevo .gcat-h{font:700 10.5px/1 var(--grot);color:var(--acc);margin:0 0 5px;padding-bottom:4px;border-bottom:1px solid var(--line)}
     #fcevo .gcat-row{display:flex;flex-wrap:wrap;gap:3px 2px}
     #fcevo .mlist{display:flex;flex-direction:column;gap:0;max-height:230px;overflow:auto}
     #fcevo .mrow{display:grid;grid-template-columns:1fr 44px 26px;grid-template-areas:"n bar sc" "why bar sc";gap:0 9px;align-items:center;padding:7px 2px;border:0;border-bottom:1px solid var(--line)}
@@ -715,7 +717,7 @@
     /* selected lights up */
     #fcevo .ec.sel .ico{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset,0 0 9px -2px var(--acc)}
     #fcevo .ec.psp.sel .ico{border-color:var(--gold1);box-shadow:0 0 0 1px var(--gold1) inset,0 0 9px -2px var(--gold1)}
-    #fcevo .ec .nm{font-size:9px;line-height:1.1;color:var(--ash);max-height:20px;overflow:hidden}
+    #fcevo .ec .nm{font-size:10.5px;line-height:1.15;color:#c2ccd6;max-height:22px;overflow:hidden}
     #fcevo .ec.sel .nm{color:var(--bone)}#fcevo .ec.psp.sel .nm{color:var(--gold1)}
     /* owned marker: a small recessed check badge */
     #fcevo .ec .own{position:absolute;top:1px;right:8px;width:14px;height:14px;background:var(--ink);border:1px solid var(--line2);border-radius:4px;
@@ -738,7 +740,7 @@
     #fcevo .mini{background:transparent;color:var(--ash);border:1px solid var(--line2);border-radius:0;padding:6px 9px;cursor:pointer;
       font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;white-space:nowrap}
     #fcevo .mini:hover{color:var(--bone);border-color:var(--ash)}
-    #fcevo .status{font:11px/1.4 var(--mono);color:var(--ash);padding:2px 0 0;min-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #fcevo .status{font:12px/1.4 var(--grot);color:var(--ash);padding:3px 0 2px;min-height:18px;white-space:normal;overflow-wrap:anywhere}
     #fcevo .status.ok{color:var(--good)}#fcevo .status.err{color:var(--bad)}#fcevo .status.warn{color:var(--warn)}#fcevo .status.head{color:var(--acc)}#fcevo .status.dim{color:var(--ash)}
     #fcevo .count{color:var(--bone);font-weight:700;font-variant-numeric:tabular-nums}#fcevo .count.over{color:var(--bad)}#fcevo .muted{color:var(--ash)}
     #fcevo .clubstat{margin-top:8px;padding:7px 9px;font:10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.08em;background:var(--char);border:1px solid var(--line);border-left:2px solid var(--line2);cursor:pointer}
@@ -791,14 +793,14 @@
 
         <div class="sec" id="fcevo-evosec">
           <h4><span class="ix">02</span> Choose evolutions</h4>
-          <div class="tabs">
-            <button data-tab="PS+">PlayStyle+ (36)</button>
-            <button data-tab="PS">PlayStyle (36)</button>
-          </div>
-          <div class="row" style="margin-top:7px">
+          <div class="row">
             <select id="fcevo-pos" style="flex:1"></select>
             <select id="fcevo-role" style="flex:1.3"></select>
             <button class="mini" data-act="suggest" data-tip="Suggest|Preselects this role's recommended playstyles — the top 3 as PlayStyle+, the rest as basic — skipping any the player already owns and respecting the caps. Tweak freely afterward.">Suggest</button>
+          </div>
+          <div class="tabs" style="margin-top:9px">
+            <button data-tab="PS+">PlayStyle+ (36)</button>
+            <button data-tab="PS">PlayStyle (36)</button>
           </div>
           <div class="row" style="margin:7px 0;justify-content:flex-end">
             <button class="mini" data-act="none">Clear selection</button>
@@ -895,7 +897,7 @@
         if (!state.running) requestRun({ delayMs: +els.delay.value, claim: els.claim.checked });
       } else if (e.key === "Escape" && state.running) { state.abort = true; }
     });
-    log("Ready. " + (ACAD() ? "Academy connected, " + clubPlayers().length + " club players." : "Waiting for Academy…"), "head");
+    log("Ready.", "head");
     if (ELIGIBLE_RARITIES.length) log("Search limited to " + ELIGIBLE_RARITIES.length + " eligible rarities (adjust via Rarity ▾).", "dim");
   }
 
@@ -1019,7 +1021,9 @@
   function renderList() {
     const box = els.list; if (!box) return; box.innerHTML = "";
     const all = clubPlayers().filter(pickable);
-    if (!all.length) { box.innerHTML = `<div class="rhint">Club still loading&hellip;</div>`; updateRunBtn(); return; }
+    // While the club is still loading the status line above already says so —
+    // don't repeat it here. Only speak up once loaded but nothing is evolvable.
+    if (!all.length) { box.innerHTML = clubPlayers().length ? `<div class="rhint">No evolvable players &mdash; all owned or ineligible.</div>` : ``; updateRunBtn(); return; }
     const matches = (searchQ ? all.filter((it) => playerName(it).toLowerCase().includes(searchQ)) : all)
       .sort((a, b) => (b.rating || 0) - (a.rating || 0));
     if (!matches.length) { box.innerHTML = `<div class="rhint">No player matches &ldquo;${esc(searchQ)}&rdquo;</div>`; updateRunBtn(); return; }
