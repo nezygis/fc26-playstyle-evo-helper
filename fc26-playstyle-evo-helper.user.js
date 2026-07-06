@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         PlayStyle Evo Helper — FC26
 // @namespace    https://github.com/nezygis/fc26-playstyle-evo-helper
-// @version      1.2.0
-// @description  Batch-apply PlayStyle / PlayStyle+ evolutions on the EA FC 26 web app. Single mode (one player, manual) or Auto mode (bulk: auto-resolve position/role and apply across many players).
+// @version      2.0.0
+// @description  Batch-apply PlayStyle / PlayStyle+ evolutions on the EA FC 26 web app. Single mode (one player, hand-pick) or Bulk mode (click players to queue and evolve many at once).
 // @author       nezygis
 // @homepageURL  https://github.com/nezygis/fc26-playstyle-evo-helper
 // @supportURL   https://github.com/nezygis/fc26-playstyle-evo-helper/issues
