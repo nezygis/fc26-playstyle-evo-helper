@@ -1192,8 +1192,7 @@
     populatePositions(); // now restricted to this player's positions, preferred first
     renderPreview(); renderGrid(); updateCount();
     if (els.preview && els.preview.scrollIntoView) els.preview.scrollIntoView({ block: "nearest" });
-    const pos = playerPositionGroups(it).join(", ") || "?";
-    log("🎯 Selected " + playerName(it) + " (" + it.rating + ") · " + pos + " · " + it.id, "head");
+    log("🎯 Selected " + playerName(it) + " (" + it.rating + ")", "head");
   }
 
   // ---- role-based suggestion ----
@@ -1240,7 +1239,7 @@
     slots.forEach((s) => state.selected.add(s));
     setTab(idxTab());
     renderGrid(); updateCount();
-    log(`✨ ${pos} · ${role}: preselected ${slots.length}${owned ? `, ${owned} already owned` : ""}${skip.length ? `, skipped ${skip.length}` : ""}. Tweak freely, then Apply.`, "head");
+    log(`✨ Preselected ${slots.length}${owned ? `, ${owned} owned` : ""}${skip.length ? `, ${skip.length} skipped` : ""} — tweak, then Apply.`, "head");
     if (skip.length) log("   skipped: " + skip.join(", "), "dim");
   }
 
@@ -1324,7 +1323,7 @@
     if (!slots.length) return log(`⊘ ${playerName(it)}: nothing to add (owned/capped).`, "warn");
     state.queue.push({ item: it, role: rr, slots });
     renderList(); renderQueue(); updateRunBtn();
-    log(`➕ Queued ${playerName(it)} — ${rr.pos} · ${rr.role} (${slots.length} evo${slots.length > 1 ? "s" : ""}).`, "head");
+    log(`➕ Queued ${playerName(it)} (${slots.length} evo${slots.length > 1 ? "s" : ""}).`, "head");
   }
   function removeFromQueue(id) { const i = state.queue.findIndex((q) => q.item.id === id); if (i >= 0) state.queue.splice(i, 1); renderList(); renderQueue(); updateRunBtn(); }
   function clearQueue() { if (!state.queue.length) return; state.queue = []; renderList(); renderQueue(); updateRunBtn(); log("Queue cleared.", "dim"); }
