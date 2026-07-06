@@ -223,6 +223,8 @@
   async function applySlots(item, slotIds, opts, prefix) {
     const itemId = item.id; let ok = 0, fail = 0; const done = [];
     prefix = prefix || "";
+    // Apply base PlayStyles first, PlayStyle+ last.
+    slotIds = [...slotIds].sort((a, b) => ((byId(a) && byId(a).kind === "PS+") ? 1 : 0) - ((byId(b) && byId(b).kind === "PS+") ? 1 : 0));
     for (let i = 0; i < slotIds.length; i++) {
       if (state.abort) { log(`${prefix}⏹ Aborted.`, "warn"); break; }
       const evo = byId(slotIds[i]);
