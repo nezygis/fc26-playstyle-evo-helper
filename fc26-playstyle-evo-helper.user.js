@@ -664,7 +664,7 @@
     #fcevo .setpanel input[type=checkbox]{accent-color:var(--acc);cursor:pointer;margin:0}
     #fcevo .setpanel input[type=number]{font-family:var(--mono);background:var(--ink);color:var(--bone);border:1px solid var(--line2);padding:2px 4px}
     #fcevo.min .chev{transform:rotate(180deg)}
-    #fcevo .body{padding:16px 13px;overflow:auto;display:flex;flex-direction:column;gap:18px}
+    #fcevo .body{padding:11px 13px;overflow:auto;display:flex;flex-direction:column;gap:10px}
     #fcevo.min .body{display:none}
     #fcevo input,#fcevo select{background:var(--ink);border:1px solid var(--line2);color:var(--bone);border-radius:0;padding:6px 8px;font:11px/1.3 var(--grot);accent-color:var(--acc)}
     #fcevo input:focus,#fcevo select:focus{outline:none;border-color:var(--acc)}
@@ -737,9 +737,9 @@
     #fcevo .qps .chip i{font-family:'UltimateTeam-Icons',sans-serif;font-style:normal;font-weight:400;font-size:14px;line-height:1}
     #fcevo .qps .chip.noglyph::after{content:attr(data-ini);font:800 8px var(--grot);color:var(--bone)}
     #fcevo .qps .chip.ic{border-color:#7d6320;background:rgba(155,120,25,.14);color:var(--gold1)}
-    #fcevo .grid{display:flex;flex-direction:column;gap:14px}
-    #fcevo .gcat-h{font:600 9px/1 var(--mono);letter-spacing:.2em;text-transform:uppercase;color:var(--ash);margin:0 0 7px;padding-bottom:4px;border-bottom:1px solid var(--line)}
-    #fcevo .gcat-row{display:flex;flex-wrap:wrap;gap:5px 4px}
+    #fcevo .grid{display:flex;flex-direction:column;gap:8px}
+    #fcevo .gcat-h{font:600 9px/1 var(--mono);letter-spacing:.2em;text-transform:uppercase;color:var(--ash);margin:0 0 4px;padding-bottom:3px;border-bottom:1px solid var(--line)}
+    #fcevo .gcat-row{display:flex;flex-wrap:wrap;gap:3px 2px}
     #fcevo .metarank h4{margin:0 0 3px;font:600 10px/1 var(--mono);color:var(--ash);text-transform:uppercase;letter-spacing:.2em;display:flex;align-items:baseline;gap:8px}
     #fcevo .metarank h4 .who{color:var(--bone);letter-spacing:.02em}
     #fcevo .metarank code{background:var(--char2);padding:1px 4px;font-family:var(--mono)}
@@ -754,15 +754,15 @@
     /* Evo icons: the PlayStyle glyph is the star — big icon in a light rounded
        container (thin border, subtle fill). PlayStyle+ carries a gold accent so
        it still reads apart from base; owned dims; selected lights up with a glow. */
-    #fcevo .ec{position:relative;width:62px;padding:5px 2px 4px;cursor:pointer;text-align:center;transition:background .1s}
+    #fcevo .ec{position:relative;width:50px;padding:3px 1px 2px;cursor:pointer;text-align:center;transition:background .1s}
     #fcevo .ec:hover{background:var(--char2)}
     #fcevo .ec.dis{opacity:.24;cursor:not-allowed}
     #fcevo .ec.owned{opacity:.5}
     #fcevo .noglyph i{display:none}
-    #fcevo .ec .ico{position:relative;width:48px;height:48px;margin:0 auto 5px;display:flex;align-items:center;justify-content:center;
-      border-radius:11px;border:1px solid var(--line2);background:var(--char2)}
-    #fcevo .ec .ico i{font-family:'UltimateTeam-Icons',sans-serif;font-style:normal;font-weight:400;font-size:30px;line-height:1;color:var(--bone)}
-    #fcevo .ec .ico.noglyph::after{content:attr(data-ini);font:800 16px var(--grot);color:var(--bone)}
+    #fcevo .ec .ico{position:relative;width:38px;height:38px;margin:0 auto 3px;display:flex;align-items:center;justify-content:center;
+      border-radius:9px;border:1px solid var(--line2);background:var(--char2)}
+    #fcevo .ec .ico i{font-family:'UltimateTeam-Icons',sans-serif;font-style:normal;font-weight:400;font-size:23px;line-height:1;color:var(--bone)}
+    #fcevo .ec .ico.noglyph::after{content:attr(data-ini);font:800 13px var(--grot);color:var(--bone)}
     /* PlayStyle+ = gold accent */
     #fcevo .ec.psp .ico{border-color:#7d6320;background:rgba(155,120,25,.14)}
     #fcevo .ec.psp .ico i,#fcevo .ec.psp .ico.noglyph::after{color:var(--gold1)}
@@ -771,7 +771,7 @@
     /* selected lights up */
     #fcevo .ec.sel .ico{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset,0 0 9px -2px var(--acc)}
     #fcevo .ec.psp.sel .ico{border-color:var(--gold1);box-shadow:0 0 0 1px var(--gold1) inset,0 0 9px -2px var(--gold1)}
-    #fcevo .ec .nm{font-size:9px;line-height:1.12;color:var(--ash);max-height:22px;overflow:hidden}
+    #fcevo .ec .nm{font-size:9px;line-height:1.1;color:var(--ash);max-height:20px;overflow:hidden}
     #fcevo .ec.sel .nm{color:var(--bone)}#fcevo .ec.psp.sel .nm{color:var(--gold1)}
     /* owned marker: a small recessed check badge */
     #fcevo .ec .own{position:absolute;top:1px;right:8px;width:14px;height:14px;background:var(--ink);border:1px solid var(--line2);border-radius:4px;
