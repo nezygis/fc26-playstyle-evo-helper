@@ -655,7 +655,7 @@
     #fcevo{--ink:#0b0f14;--char:#141b23;--char2:#1d2732;--line:#28323d;--line2:#394653;
       --bone:#e7edf3;--ash:#899;--acc:#33d6c1;--acc-ink:#052420;--good:#4fd08a;--bad:#ff6b6b;--warn:#f2c14e;
       --gold1:#f6d879;--gold2:#c9942f;--mono:ui-monospace,Menlo,Consolas,monospace;--grot:-apple-system,"Helvetica Neue",Arial,sans-serif;
-      position:fixed;top:54px;right:16px;width:366px;max-height:90vh;z-index:2147483647;background:var(--ink);color:var(--bone);
+      position:fixed;top:54px;right:16px;width:440px;max-height:90vh;z-index:2147483647;background:var(--ink);color:var(--bone);
       font:12px/1.45 var(--grot);border:1px solid var(--line2);box-shadow:0 26px 64px -24px #000;display:flex;flex-direction:column;overflow:hidden}
     #fcevo *{box-sizing:border-box}
     #fcevo select,#fcevo input{min-width:0}
@@ -697,9 +697,9 @@
     #fcevo .pr:hover{background:var(--char2)}
     #fcevo .pr:focus{outline:none;background:var(--char2);box-shadow:inset 2px 0 0 var(--acc)}
     #fcevo .pr .ov{font:800 15px/1 var(--grot);color:var(--bone);min-width:26px;text-align:center;font-variant-numeric:tabular-nums}
-    #fcevo .pr .nm{flex:1;font-weight:600}
+    #fcevo .pr .nm{flex:1;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #fcevo .pr .gk{font:9px/1.5 var(--mono);color:var(--acc);border:1px solid var(--line2);padding:1px 4px;letter-spacing:.08em}
-    #fcevo .pr .psc{display:flex;gap:5px;white-space:nowrap;font-family:var(--mono)}
+    #fcevo .pr .psc{display:flex;gap:5px;white-space:nowrap;font-family:var(--mono);flex:none}
     #fcevo .pr .pchip{font-size:10px;font-weight:700;padding:1px 5px;border:1px solid;font-variant-numeric:tabular-nums}
     #fcevo .pr .pchip.room{color:var(--good);border-color:#2f5a2a}
     #fcevo .pr .pchip.full{color:var(--bad);border-color:#5a2b24}
@@ -717,11 +717,11 @@
       font:700 11px/1 var(--grot);text-transform:uppercase;letter-spacing:.16em;margin-bottom:-1px}
     #fcevo .modetabs button:hover{color:var(--bone)}
     #fcevo .modetabs button.on{color:var(--bone);border-bottom-color:var(--acc)}
-    #fcevo .plist{display:flex;flex-direction:column;max-height:320px;overflow-y:auto;margin-top:8px;border-top:1px solid var(--line)}
+    #fcevo .plist{display:flex;flex-direction:column;max-height:210px;overflow-y:auto;margin-top:8px;border-top:1px solid var(--line)}
     #fcevo .plist .pr input{margin:0 2px 0 0;cursor:pointer;accent-color:var(--acc)}
     #fcevo .pr.hasps .nm{color:var(--warn)}
     #fcevo .pr.on{background:var(--char2);box-shadow:inset 2px 0 0 var(--acc)}
-    #fcevo .rolechip{font:10px/1.4 var(--mono);color:var(--good);border:1px solid var(--line2);padding:1px 5px;white-space:nowrap;text-transform:uppercase;letter-spacing:.04em}
+    #fcevo .rolechip{font:10px/1.4 var(--mono);color:var(--good);border:1px solid var(--line2);padding:1px 5px;white-space:nowrap;text-transform:uppercase;letter-spacing:.04em;min-width:0;overflow:hidden;text-overflow:ellipsis}
     #fcevo .tabs{display:flex;gap:0;border-bottom:1px solid var(--line)}
     #fcevo .tabs button{flex:1;background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ash);padding:8px 6px;cursor:pointer;
       font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;margin-bottom:-1px}
@@ -741,47 +741,39 @@
     #fcevo .mrow .mbar i{display:block;height:100%;background:var(--acc)}
     #fcevo .mrow .msc{grid-area:sc;text-align:right;font:800 15px/1 var(--grot);color:var(--bone);font-variant-numeric:tabular-nums}
     #fcevo .mrow .mwhy{grid-area:why;font:9px/1.3 var(--mono);color:var(--ash);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    /* Variant B — metal identity: PlayStyle = silver diamond, PlayStyle+ = gold
-       hexagon, both drawn as clip-path shapes at the SAME 40px box so they read
-       the same size. Available = matte metal; owned recedes (dim + check);
-       selected lights up to polished metal with a same-colour glow. */
-    #fcevo .ec{position:relative;width:56px;padding:5px 2px 4px;cursor:pointer;text-align:center;transition:background .1s}
+    /* Evo icons: the PlayStyle glyph is the star — big icon in a light rounded
+       container (thin border, subtle fill). PlayStyle+ carries a gold accent so
+       it still reads apart from base; owned dims; selected lights up with a glow. */
+    #fcevo .ec{position:relative;width:62px;padding:5px 2px 4px;cursor:pointer;text-align:center;transition:background .1s}
     #fcevo .ec:hover{background:var(--char2)}
     #fcevo .ec.dis{opacity:.24;cursor:not-allowed}
     #fcevo .ec.owned{opacity:.5}
     #fcevo .noglyph i{display:none}
-    #fcevo .ec .ico{position:relative;width:40px;height:40px;margin:0 auto 5px;display:flex;align-items:center;justify-content:center}
-    #fcevo .ec .ico i{font-family:'UltimateTeam-Icons',sans-serif;font-style:normal;font-weight:400;font-size:19px;line-height:1}
-    #fcevo .ec .ico.noglyph::after{content:attr(data-ini);font:800 11px var(--grot)}
-    /* diamond (PlayStyle) */
-    #fcevo .ec:not(.psp) .ico{clip-path:polygon(50% 2%,98% 50%,50% 98%,2% 50%);background:linear-gradient(160deg,#767c85,#4c525b)}
-    #fcevo .ec:not(.psp) .ico i,#fcevo .ec:not(.psp) .ico.noglyph::after{color:#eef1f5}
-    #fcevo .ec.owned:not(.psp) .ico{background:linear-gradient(160deg,#3e434b,#2f343b)}
-    #fcevo .ec.owned:not(.psp) .ico i,#fcevo .ec.owned:not(.psp) .ico.noglyph::after{color:#aeb3ba}
-    #fcevo .ec.sel:not(.psp) .ico{background:linear-gradient(160deg,#eef1f5,#c1c7cf);filter:drop-shadow(0 0 6px rgba(232,238,245,.65))}
-    #fcevo .ec.sel:not(.psp) .ico i,#fcevo .ec.sel:not(.psp) .ico.noglyph::after{color:#14171c}
-    /* hexagon (PlayStyle+) */
-    #fcevo .ec.psp .ico{clip-path:polygon(25% 5%,75% 5%,100% 50%,75% 95%,25% 95%,0 50%);background:linear-gradient(160deg,#6a5622,#403314)}
-    #fcevo .ec.psp .ico i,#fcevo .ec.psp .ico.noglyph::after{color:#e9cd86}
-    #fcevo .ec.psp.owned .ico{background:linear-gradient(160deg,#4a4326,#332d18)}
-    #fcevo .ec.psp.owned .ico i,#fcevo .ec.psp.owned .ico.noglyph::after{color:#9a8a5e}
-    #fcevo .ec.psp.sel .ico{background:linear-gradient(160deg,#f6d879,#c9942f);filter:drop-shadow(0 0 6px rgba(246,216,121,.8))}
-    #fcevo .ec.psp.sel .ico i,#fcevo .ec.psp.sel .ico.noglyph::after{color:#2a1c00}
+    #fcevo .ec .ico{position:relative;width:48px;height:48px;margin:0 auto 5px;display:flex;align-items:center;justify-content:center;
+      border-radius:11px;border:1px solid var(--line2);background:var(--char2)}
+    #fcevo .ec .ico i{font-family:'UltimateTeam-Icons',sans-serif;font-style:normal;font-weight:400;font-size:30px;line-height:1;color:var(--bone)}
+    #fcevo .ec .ico.noglyph::after{content:attr(data-ini);font:800 16px var(--grot);color:var(--bone)}
+    /* PlayStyle+ = gold accent */
+    #fcevo .ec.psp .ico{border-color:#7d6320;background:rgba(155,120,25,.14)}
+    #fcevo .ec.psp .ico i,#fcevo .ec.psp .ico.noglyph::after{color:var(--gold1)}
+    /* owned recedes */
+    #fcevo .ec.owned .ico i,#fcevo .ec.owned .ico.noglyph::after{color:var(--ash)}
+    /* selected lights up */
+    #fcevo .ec.sel .ico{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset,0 0 9px -2px var(--acc)}
+    #fcevo .ec.psp.sel .ico{border-color:var(--gold1);box-shadow:0 0 0 1px var(--gold1) inset,0 0 9px -2px var(--gold1)}
     #fcevo .ec .nm{font-size:9px;line-height:1.12;color:var(--ash);max-height:22px;overflow:hidden}
-    #fcevo .ec.owned .nm{color:var(--ash)}
-    #fcevo .ec.sel:not(.psp) .nm{color:#eef1f5}#fcevo .ec.psp.sel .nm{color:#f2cf6f}
+    #fcevo .ec.sel .nm{color:var(--bone)}#fcevo .ec.psp.sel .nm{color:var(--gold1)}
     /* owned marker: a small recessed check badge */
-    #fcevo .ec .own{position:absolute;top:1px;right:4px;width:13px;height:13px;background:var(--ink);border:1px solid var(--line2);
+    #fcevo .ec .own{position:absolute;top:1px;right:8px;width:14px;height:14px;background:var(--ink);border:1px solid var(--line2);border-radius:4px;
       display:flex;align-items:center;justify-content:center;font:9px/1 var(--grot);color:var(--ash)}
     #fcevo .ec .own::after{content:"\\2713"}
-    /* preview: player's current playstyles — same clip-path shapes, matched size */
+    /* preview: player's current playstyles — same light container, matched style */
     #fcevo .psrow{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
-    #fcevo .psrow .chip{width:26px;height:26px;display:flex;align-items:center;justify-content:center;
-      clip-path:polygon(50% 2%,98% 50%,50% 98%,2% 50%);background:linear-gradient(160deg,#eef1f5,#c1c7cf);color:#14171c}
-    #fcevo .psrow .chip i{font-family:'UltimateTeam-Icons',sans-serif;font-style:normal;font-weight:400;font-size:12px;line-height:1}
-    #fcevo .psrow .chip.noglyph::after{content:attr(data-ini);font:800 9px var(--grot);color:#14171c}
-    #fcevo .psrow .chip.ic{clip-path:polygon(25% 5%,75% 5%,100% 50%,75% 95%,25% 95%,0 50%);background:linear-gradient(160deg,var(--gold1),var(--gold2));color:#2a1c00}
-    #fcevo .psrow .chip.ic.noglyph::after{color:#2a1c00}
+    #fcevo .psrow .chip{width:32px;height:32px;display:flex;align-items:center;justify-content:center;
+      border-radius:8px;border:1px solid var(--line2);background:var(--char2);color:var(--bone)}
+    #fcevo .psrow .chip i{font-family:'UltimateTeam-Icons',sans-serif;font-style:normal;font-weight:400;font-size:19px;line-height:1}
+    #fcevo .psrow .chip.noglyph::after{content:attr(data-ini);font:800 11px var(--grot);color:var(--bone)}
+    #fcevo .psrow .chip.ic{border-color:#7d6320;background:rgba(155,120,25,.14);color:var(--gold1)}
     #fcevo .opts{display:flex;gap:14px;align-items:center;flex-wrap:wrap;font:10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--ash)}
     #fcevo .opts input[type=number]{font-family:var(--mono)}
     #fcevo .go{background:var(--acc);color:var(--acc-ink);border:0;border-radius:0;padding:12px;cursor:pointer;
