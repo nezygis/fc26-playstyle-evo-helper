@@ -180,7 +180,7 @@
     mode: "single", // "single" (manual, one player) | "auto" (bulk auto-resolve)
     item: null, // selected club item entity
     selected: new Set(), // slotIds
-    autoChecked: new Set(), // auto-mode: itemIds ticked in the club checklist
+    queue: [], // auto-mode: [{ item, role:{pos,role}, slots:[slotIds] }] — click a player to add
     running: false, abort: false,
     rarities: new Set(), // allowed rareflags for club search; empty = all
     clubItems: null, // players we loaded ourselves (full club / eligible rarities)
@@ -272,27 +272,17 @@
   }
 
   // Apply entry point for the Run button. Single mode -> runBatch. Auto mode ->
-  // resolve each ticked player's role+evos, confirm, then apply to all directly.
+  // apply the queue (each entry already carries its resolved evo slots), after a confirm.
   async function runDispatch(opts) {
     if (state.mode !== "auto") return runBatch([...state.selected], opts);
     if (state.running) return;
-    if (!state.autoChecked.size) return log("✋ Tick players to auto-evolve first.", "warn");
-    // Resolve every ticked player to { item, slots } (suggestedSlots already skips
-    // owned/capped), dropping any with nothing to add.
-    const entries = []; let totalEvos = 0;
-    state.autoChecked.forEach((id) => {
-      const it = findItemById(id); if (!it) return;
-      const rr = autoResolveRole(it); if (!rr) return;
-      const { slots } = suggestedSlots(it, rr.pos, rr.role);
-      if (slots.length) { entries.push({ item: it, slots }); totalEvos += slots.length; }
-    });
-    if (!entries.length) return log("✋ Ticked players have nothing to add (owned/capped).", "warn");
-    // Confirm before a permanent bulk change.
-    if (!confirm(`Auto-evolve ${entries.length} player${entries.length > 1 ? "s" : ""} with ~${totalEvos} evolution${totalEvos > 1 ? "s" : ""}?\n\nThis permanently changes the cards.`)) { log("Cancelled.", "dim"); return; }
+    if (!state.queue.length) return log("✋ Queue is empty — click players to add them.", "warn");
+    const entries = state.queue.map((q) => ({ item: q.item, slots: q.slots }));
+    const totalEvos = entries.reduce((s, e) => s + e.slots.length, 0);
     state.running = true; state.abort = false; setRunning(true);
     let totalOk = 0, totalFail = 0;
     const multi = entries.length > 1;
-    log(`▶▶ Auto batch: ${entries.length} player${multi ? "s" : ""}, ~${totalEvos} evos`, "head");
+    log(`▶▶ Evolving ${entries.length} player${multi ? "s" : ""}, ~${totalEvos} evos`, "head");
     for (let p = 0; p < entries.length; p++) {
       if (state.abort) { log("⏹ Aborted.", "warn"); break; }
       const { item, slots } = entries[p];
@@ -306,10 +296,10 @@
       const focusId = state.item ? state.item.id : entries[0].item.id;
       try { await reloadAndReselect(focusId); } catch (_) {}
     }
-    state.autoChecked.clear(); // done — clear ticks so cards aren't re-applied
-    renderList(); renderPreview(); renderGrid(); updateCount(); renderMetaRank(); updateRunBtn();
+    state.queue = []; // done — clear the queue
+    renderList(); renderQueue(); renderPreview(); renderGrid(); updateCount(); renderMetaRank(); updateRunBtn();
     state.running = false; setRunning(false);
-    log(`■ Auto done: ${totalOk} ok, ${totalFail} failed across ${entries.length} player${multi ? "s" : ""}.`, "head");
+    log(`■ Done: ${totalOk} ok, ${totalFail} failed across ${entries.length} player${multi ? "s" : ""}.`, "head");
   }
 
   // Mirror what the app's own academy flow does after an apply, so views pick up
@@ -647,6 +637,7 @@
   // UI
   // ==========================================================================
   let els = {}, tab = "PS+", filter = "", searchQ = "";
+  let _armTimer = null; // in-panel two-step confirm for the Evolve button
   let rarQ = ""; // rarity dropdown filter query
 
   function css() {
@@ -727,6 +718,19 @@
       font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;margin-bottom:-1px}
     #fcevo .tabs button:hover{color:var(--bone)}
     #fcevo .tabs button.on{color:var(--bone);border-bottom-color:var(--acc)}
+    #fcevo .queue-list{display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto}
+    #fcevo .qi{background:var(--char);border:1px solid var(--line);padding:7px 8px}
+    #fcevo .qi-head{display:flex;align-items:center;gap:8px}
+    #fcevo .qi-head .ov{font:800 14px/1 var(--grot);color:var(--bone);min-width:26px;font-variant-numeric:tabular-nums}
+    #fcevo .qi-head .nm{flex:1;font-size:12px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #fcevo .qi-head .rolechip{flex:none}
+    #fcevo .qi .qx{background:none;border:0;color:var(--ash);cursor:pointer;font-size:14px;padding:0 2px;line-height:1}
+    #fcevo .qi .qx:hover{color:var(--bad)}
+    #fcevo .qps{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+    #fcevo .qps .chip{width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:6px;border:1px solid var(--line2);background:var(--char2);color:var(--bone)}
+    #fcevo .qps .chip i{font-family:'UltimateTeam-Icons',sans-serif;font-style:normal;font-weight:400;font-size:14px;line-height:1}
+    #fcevo .qps .chip.noglyph::after{content:attr(data-ini);font:800 8px var(--grot);color:var(--bone)}
+    #fcevo .qps .chip.ic{border-color:#7d6320;background:rgba(155,120,25,.14);color:var(--gold1)}
     #fcevo .grid{display:flex;flex-direction:column;gap:14px}
     #fcevo .gcat-h{font:600 9px/1 var(--mono);letter-spacing:.2em;text-transform:uppercase;color:var(--ash);margin:0 0 7px;padding-bottom:4px;border-bottom:1px solid var(--line)}
     #fcevo .gcat-row{display:flex;flex-wrap:wrap;gap:5px 4px}
@@ -780,6 +784,7 @@
       font:800 11px/1 var(--grot);text-transform:uppercase;letter-spacing:.16em}
     #fcevo .go:hover{filter:brightness(1.06)}
     #fcevo .go:disabled{opacity:.4}#fcevo .stop{background:var(--bad);color:#160b09}
+    #fcevo .go.armed{background:var(--warn);color:#211803}
     #fcevo .mini{background:transparent;color:var(--ash);border:1px solid var(--line2);border-radius:0;padding:6px 9px;cursor:pointer;
       font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;white-space:nowrap}
     #fcevo .mini:hover{color:var(--bone);border-color:var(--ash)}
@@ -836,6 +841,11 @@
           <div class="plist" id="fcevo-list"></div>
         </div>
 
+        <div class="sec" id="fcevo-auto" style="display:none">
+          <h4>Queue · <span id="fcevo-qcount">0</span></h4>
+          <div class="queue-list" id="fcevo-qlist"></div>
+        </div>
+
         <div class="sec" id="fcevo-preview" style="display:none"></div>
 
         <div class="sec" id="fcevo-evosec">
@@ -883,6 +893,7 @@
       pos: q("#fcevo-pos"), role: q("#fcevo-role"), metarank: q("#fcevo-metarank"), autosync: q("#fcevo-autosync"),
       runbtn: q("#fcevo-runbtn"), clearsel: q("#fcevo-clearsel"), pickhdr: q("#fcevo-pickhdr"), autosyncrow: q("#fcevo-autosyncrow"),
       evosec: q("#fcevo-evosec"), list: q("#fcevo-list"),
+      queuesec: q("#fcevo-auto"), qlist: q("#fcevo-qlist"), qcount: q("#fcevo-qcount"),
     };
     function q(s) { return root.querySelector(s); }
 
@@ -936,7 +947,7 @@
     root.addEventListener("keydown", (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
-        if (!state.running) runDispatch({ delayMs: +els.delay.value, claim: els.claim.checked });
+        if (!state.running) requestRun({ delayMs: +els.delay.value, claim: els.claim.checked });
       } else if (e.key === "Escape" && state.running) { state.abort = true; }
     });
     log("Ready. " + (ACAD() ? "Academy connected, " + clubPlayers().length + " club players." : "Waiting for Academy…"), "head");
@@ -955,12 +966,11 @@
     if (act === "rar") return toggleRarPanel();
     if (act === "suggest") return suggest();
     if (act === "none") { current().forEach((x) => state.selected.delete(x.s)); return (renderGrid(), updateCount()); }
-    if (act === "run") return runDispatch({ delayMs: +els.delay.value, claim: els.claim.checked });
+    if (act === "run") return requestRun({ delayMs: +els.delay.value, claim: els.claim.checked });
     if (act === "stop") return (state.abort = true);
-    if (act === "clearsel") {
-      if (state.mode === "auto") { state.autoChecked.clear(); renderList(); updateRunBtn(); log("Cleared ticked players.", "dim"); }
-      return;
-    }
+    if (act === "clearsel") return clearQueue();
+    const qrm = e.target.getAttribute("data-qrm");
+    if (qrm) return removeFromQueue(Number(qrm));
   }
 
   const current = () => (tab === "PS+" ? PSP : PS);
@@ -1042,28 +1052,21 @@
       + `<span class="pchip ${baseFull ? "full" : "room"}" title="Basic PlayStyles used / cap">${nb ?? "?"}/${CAP_BASIC}</span>`
       + `</span>`;
   }
-  // Unified club row for BOTH modes. Auto mode adds a checkbox (multi-select) and
-  // ticking selects it for the bulk apply; Single mode selects on click. Same content either way:
-  // OVR, name, GK, the auto-resolved position·role, and PS+/PS usage chips.
+  // Unified club row for BOTH modes: OVR, name, GK, PS+/PS usage chips. Single mode
+  // selects the player on click; Auto mode toggles them in the queue on click.
   const LIST_CAP = 100;
   function playerRow(it) {
     const auto = state.mode === "auto";
-    const row = document.createElement(auto ? "label" : "div");
+    const row = document.createElement("div");
     const hasEvos = (numPlus(it) ?? 0) > 0 || (numBasic(it) ?? 0) > 0;
-    row.className = "pr" + (hasEvos ? " hasps" : "") + (state.item && state.item.id === it.id ? " on" : "");
-    const gk = isGKItem(it), rr = autoResolveRole(it);
+    const active = auto ? state.queue.some((q) => q.item.id === it.id) : (state.item && state.item.id === it.id);
+    row.className = "pr" + (hasEvos ? " hasps" : "") + (active ? " on" : "");
+    const gk = isGKItem(it);
     row.innerHTML =
-      (auto ? `<input type="checkbox" ${state.autoChecked.has(it.id) ? "checked" : ""}>` : "")
-      + `<span class="ov">${it.rating ?? "?"}</span>`
+      `<span class="ov">${it.rating ?? "?"}</span>`
       + `<span class="nm">${esc(playerName(it))}${gk ? ' <span class="gk">GK</span>' : ""}</span>`
-      + `<span class="rolechip" title="Auto-resolved position · role">${rr ? esc(rr.pos + " · " + rr.role) : "—"}</span>`
       + psChips(it);
-    if (auto) {
-      const cb = row.querySelector("input");
-      cb.addEventListener("change", () => { cb.checked ? state.autoChecked.add(it.id) : state.autoChecked.delete(it.id); updateRunBtn(); });
-    } else {
-      row.addEventListener("click", () => selectPlayer(it));
-    }
+    row.addEventListener("click", () => auto ? toggleQueue(it) : selectPlayer(it));
     return row;
   }
   // The one club list, shared by Single (click to pick) and Auto (tick to select).
@@ -1334,22 +1337,70 @@
     els.preview.style.display = auto ? "none" : (state.item ? "" : "none");
     els.metarank.style.display = "none"; // renderMetaRank re-shows it in single mode
     if (els.autosyncrow) els.autosyncrow.style.display = auto ? "none" : "";
-    if (els.clearsel) els.clearsel.style.display = auto ? "" : "none"; // Clear-ticks (auto only)
-    if (els.pickhdr) els.pickhdr.textContent = auto ? "Tick players to auto-evolve" : "Select from club";
-    renderList(); // one shared list; rows adapt to the mode (checkbox vs click)
-    if (!auto) { renderPreview(); renderMetaRank(); }
+    if (els.clearsel) els.clearsel.style.display = auto ? "" : "none"; // clears the queue (auto only)
+    if (els.pickhdr) els.pickhdr.textContent = auto ? "Click players to queue" : "Select from club";
+    renderList(); // one shared list; click = select (single) or queue (auto)
+    if (auto) renderQueue(); else { renderPreview(); renderMetaRank(); }
     updateRunBtn();
   }
-  // In Auto mode the Run button both resolves and applies to the ticked players,
-  // and its label reflects how many are ticked.
   function updateRunBtn() {
     if (!els.runbtn) return;
+    // any label refresh also disarms the two-step confirm
+    clearTimeout(_armTimer); els.runbtn.dataset.armed = ""; els.runbtn.classList.remove("armed");
     if (state.mode === "auto") {
-      const n = state.autoChecked.size;
-      els.runbtn.textContent = n ? `Auto-resolve & apply — ${n} player${n > 1 ? "s" : ""}` : "Tick players to auto-evolve";
+      const n = state.queue.length;
+      els.runbtn.textContent = n ? `Evolve selected players (${n})` : "Evolve selected players";
     } else {
       els.runbtn.textContent = "Apply selected";
     }
+  }
+  function disarmRun() { clearTimeout(_armTimer); if (els.runbtn) { els.runbtn.dataset.armed = ""; els.runbtn.classList.remove("armed"); } updateRunBtn(); }
+  // Run button entry point. Single applies immediately; Auto uses an in-panel
+  // two-step confirm (first click arms the button, second click within 4s evolves).
+  function requestRun(opts) {
+    if (state.running) return;
+    if (state.mode !== "auto") return runDispatch(opts);
+    if (!state.queue.length) return log("✋ Queue is empty — click players to add them.", "warn");
+    if (els.runbtn.dataset.armed === "1") { clearTimeout(_armTimer); els.runbtn.dataset.armed = ""; els.runbtn.classList.remove("armed"); return runDispatch(opts); }
+    els.runbtn.dataset.armed = "1"; els.runbtn.classList.add("armed");
+    const total = state.queue.reduce((s, q) => s + q.slots.length, 0);
+    els.runbtn.textContent = `Confirm — evolve ${state.queue.length} (${total} evo${total > 1 ? "s" : ""})?`;
+    _armTimer = setTimeout(disarmRun, 4000);
+  }
+
+  // --- Auto queue: click a player to add (auto-resolved), review, remove, evolve ---
+  function toggleQueue(it) {
+    const i = state.queue.findIndex((q) => q.item.id === it.id);
+    if (i >= 0) { state.queue.splice(i, 1); renderList(); renderQueue(); updateRunBtn(); return; } // click again = remove
+    const rr = autoResolveRole(it);
+    const { slots } = rr ? suggestedSlots(it, rr.pos, rr.role) : { slots: [] };
+    if (!slots.length) return log(`⊘ ${playerName(it)}: nothing to add (owned/capped).`, "warn");
+    state.queue.push({ item: it, role: rr, slots });
+    renderList(); renderQueue(); updateRunBtn();
+    log(`➕ Queued ${playerName(it)} — ${rr.pos} · ${rr.role} (${slots.length} evo${slots.length > 1 ? "s" : ""}).`, "head");
+  }
+  function removeFromQueue(id) { const i = state.queue.findIndex((q) => q.item.id === id); if (i >= 0) state.queue.splice(i, 1); renderList(); renderQueue(); updateRunBtn(); }
+  function clearQueue() { if (!state.queue.length) return; state.queue = []; renderList(); renderQueue(); updateRunBtn(); log("Queue cleared.", "dim"); }
+  function renderQueue() {
+    if (!els.queuesec) return;
+    if (!state.queue.length) { els.queuesec.style.display = "none"; return; }
+    els.queuesec.style.display = "";
+    els.qcount.textContent = state.queue.length + " player" + (state.queue.length > 1 ? "s" : "");
+    els.qlist.innerHTML = state.queue.map((q) => {
+      const it = q.item, gk = isGKItem(it);
+      const roleTxt = q.role ? `${q.role.pos} · ${q.role.role}` : "";
+      const chips = q.slots.map((sid) => {
+        const evo = byId(sid); if (!evo) return "";
+        const nm = dispName(baseName(evo));
+        return `<span class="chip ${evo.kind === "PS+" ? "ic" : ""}" data-ini="${esc(initials(nm))}" data-tip="${esc(nm)}${evo.kind === "PS+" ? " +" : ""}|${esc(psDesc(baseName(evo)))}"><i class="${iconClass(evo.kind === "PS+", evoTrait(evo))}"></i></span>`;
+      }).join("");
+      return `<div class="qi"><div class="qi-head"><span class="ov">${it.rating ?? "?"}</span>`
+        + `<span class="nm">${esc(playerName(it))}${gk ? ' <span class="gk">GK</span>' : ""}</span>`
+        + (roleTxt ? `<span class="rolechip">${esc(roleTxt)}</span>` : "")
+        + `<button class="qx" data-qrm="${it.id}" title="Remove from queue">✕</button></div>`
+        + `<div class="qps">${chips}</div></div>`;
+    }).join("");
+    markGlyphs();
   }
 
   // Build the ranked list for the selected player + role, sorted by stat score.
@@ -1481,7 +1532,7 @@
   // corrects once document.fonts settles.
   function markGlyphs() {
     if (!els.root) return;
-    els.root.querySelectorAll(".ec .ico, .psrow .chip").forEach((el) => {
+    els.root.querySelectorAll(".ec .ico, .psrow .chip, .qps .chip").forEach((el) => {
       const g = el.querySelector("i");
       el.classList.toggle("noglyph", !g || g.getBoundingClientRect().width < 4);
     });
@@ -1620,7 +1671,7 @@
       if (ACAD() && CLUB()) {
         clearInterval(iv);
         if (!document.getElementById("fcevo")) build();
-        window.FCEvo = { applyEvo, claimEvo, runBatch, runDispatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad, readAttrs, scoreEvo, dumpEntity, openEntity, detectOpenPlayer, findOpenPlayer, freshItemById, reloadAndReselect, setAutoSync, setMode, autoResolveRole, suggestedSlots };
+        window.FCEvo = { applyEvo, claimEvo, runBatch, runDispatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad, readAttrs, scoreEvo, dumpEntity, openEntity, detectOpenPlayer, findOpenPlayer, freshItemById, reloadAndReselect, setAutoSync, setMode, autoResolveRole, suggestedSlots, toggleQueue, clearQueue, requestRun };
         // Wait until the active squad is loaded (app ready for club searches), then
         // load the club. Hard fallback at 15s so it can't hang; retries cover the rest.
         setClubStatus("Club: waiting for squad…", "load");
