@@ -657,6 +657,10 @@
     #fcevo header button{background:transparent;color:var(--ash);border:1px solid var(--line2);padding:4px 9px;cursor:pointer;font:600 11px/1 var(--mono);display:flex;align-items:center}
     #fcevo header button:hover{color:var(--ink);background:var(--acc);border-color:var(--acc)}
     #fcevo .chev{pointer-events:none;transform:rotate(0);transition:transform .32s cubic-bezier(.2,.7,.2,1)}
+    #fcevo .setpanel{position:absolute;top:44px;right:12px;z-index:6;background:var(--char);border:1px solid var(--line2);padding:10px 12px;display:flex;flex-direction:column;gap:9px;box-shadow:0 16px 38px -14px #000;font:11px/1.3 var(--mono);color:var(--ash);text-transform:uppercase;letter-spacing:.06em}
+    #fcevo .setpanel label{display:flex;align-items:center;gap:7px;white-space:nowrap;cursor:pointer}
+    #fcevo .setpanel input[type=checkbox]{accent-color:var(--acc);cursor:pointer;margin:0}
+    #fcevo .setpanel input[type=number]{font-family:var(--mono);background:var(--ink);color:var(--bone);border:1px solid var(--line2);padding:2px 4px}
     #fcevo.min .chev{transform:rotate(180deg)}
     #fcevo .body{padding:16px 13px;overflow:auto;display:flex;flex-direction:column;gap:18px}
     #fcevo.min .body{display:none}
@@ -823,7 +827,12 @@
     const root = document.createElement("div");
     root.id = "fcevo";
     root.innerHTML = `
-      <header><b class="wm">Evo&nbsp;Helper</b><i class="dia" aria-hidden="true"></i><span class="sp"></span><button data-act="min" title="Collapse"><svg class="chev" viewBox="0 0 14 9" width="12" height="8" aria-hidden="true"><path d="M1 6.5L7 1.5L13 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></header>
+      <header><b class="wm">Evo&nbsp;Helper</b><i class="dia" aria-hidden="true"></i><span class="sp"></span><button data-act="settings" class="hbtn" title="Settings">⚙</button><button data-act="min" title="Collapse"><svg class="chev" viewBox="0 0 14 9" width="12" height="8" aria-hidden="true"><path d="M1 6.5L7 1.5L13 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></header>
+      <div class="setpanel" id="fcevo-settings" style="display:none">
+        <label title="Add the player to each slot, then claim/finish it so the PlayStyle is locked in."><input type="checkbox" id="fcevo-claim" checked> claim &amp; finish</label>
+        <label>delay <input type="number" id="fcevo-delay" value="300" min="200" step="100" style="width:54px"> ms</label>
+        <label title="When on, the panel loads collapsed each time you open the web app."><input type="checkbox" id="fcevo-startmin"> start minimized</label>
+      </div>
       <div class="modetabs">
         <button data-mode="single" class="on">Single</button>
         <button data-mode="auto">Auto</button>
@@ -869,9 +878,7 @@
         <div class="sec metarank" id="fcevo-metarank" style="display:none"></div>
 
         <div class="opts">
-          <label title="Add the player to each slot, then claim/finish it so the PlayStyle is locked in."><input type="checkbox" id="fcevo-claim" checked> claim &amp; finish</label>
-          <label>delay <input type="number" id="fcevo-delay" value="500" min="200" step="100" style="width:60px"></label>
-          <span class="sp"></span><span class="count" id="fcevo-count">0 selected</span>
+          <span class="count" id="fcevo-count">0 selected</span>
         </div>
         <div class="row">
           <button class="go" data-act="run" id="fcevo-runbtn" style="flex:1">Apply selected</button>
@@ -889,6 +896,7 @@
       root, search: q("#fcevo-search"), preview: q("#fcevo-preview"), grid: q("#fcevo-grid"),
       count: q("#fcevo-count"), status: q("#fcevo-status"), run: q('[data-act="run"]'), stop: q('[data-act="stop"]'),
       claim: q("#fcevo-claim"), delay: q("#fcevo-delay"), logwrap: q("#fcevo-logwrap"), logpane: q("#fcevo-logpane"),
+      settings: q("#fcevo-settings"), startmin: q("#fcevo-startmin"),
       rarbtn: q("#fcevo-rarbtn"), rarpanel: q("#fcevo-rarpanel"), clubstat: q("#fcevo-clubstat"),
       pos: q("#fcevo-pos"), role: q("#fcevo-role"), metarank: q("#fcevo-metarank"), autosync: q("#fcevo-autosync"),
       runbtn: q("#fcevo-runbtn"), clearsel: q("#fcevo-clearsel"), pickhdr: q("#fcevo-pickhdr"), autosyncrow: q("#fcevo-autosyncrow"),
@@ -925,14 +933,16 @@
     setTab("PS+");
     setMode("single");
 
-    // Restore persisted preferences (delay, claim, panel position, min/log state).
+    // Restore persisted preferences (localStorage — persists across sessions).
     if (Number.isFinite(prefs.delay)) els.delay.value = prefs.delay;
     if (typeof prefs.claim === "boolean") els.claim.checked = prefs.claim;
     if (prefs.pos && prefs.pos.left) { root.style.right = "auto"; root.style.left = prefs.pos.left; root.style.top = prefs.pos.top; }
-    if (prefs.min) root.classList.add("min");
+    if (prefs.startMin) { root.classList.add("min"); const mb = root.querySelector('[data-act="min"]'); if (mb) mb.title = "Expand"; }
     if (prefs.logOpen) { els.logwrap.classList.add("open"); const lt = root.querySelector('[data-act="logtoggle"]'); if (lt) lt.textContent = "Log ▴"; }
     els.delay.addEventListener("change", () => savePrefs({ delay: +els.delay.value }));
     els.claim.addEventListener("change", () => savePrefs({ claim: els.claim.checked }));
+    els.startmin.checked = !!prefs.startMin;
+    els.startmin.addEventListener("change", () => savePrefs({ startMin: els.startmin.checked }));
     if (prefs.autoSync) els.autosync.checked = true;
     els.autosync.addEventListener("change", () => setAutoSync(els.autosync.checked));
     if (prefs.autoSync) setAutoSync(true);
@@ -940,9 +950,10 @@
     // Close the rarity dropdown if the panel scrolls or resizes.
     root.querySelector(".body").addEventListener("scroll", () => closeRar(), { passive: true });
     window.addEventListener("resize", () => closeRar());
-    // Close the rarity dropdown when clicking outside it (but not on its own button).
+    // Close the rarity dropdown / settings when clicking outside them.
     document.addEventListener("mousedown", (e) => {
       if (els.rarpanel.classList.contains("open") && !els.rarpanel.contains(e.target) && !els.rarbtn.contains(e.target)) closeRar();
+      if (els.settings.style.display !== "none" && !els.settings.contains(e.target) && !e.target.closest('[data-act="settings"]')) closeSettings();
     });
     root.addEventListener("keydown", (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
@@ -960,7 +971,8 @@
     const m = e.target.getAttribute("data-mode");
     if (m) return setMode(m);
     if (t) return setTab(t);
-    if (act === "min") { const mn = els.root.classList.toggle("min"); e.target.closest("button").title = mn ? "Expand" : "Collapse"; savePrefs({ min: mn }); return; }
+    if (act === "min") { const mn = els.root.classList.toggle("min"); e.target.closest("button").title = mn ? "Expand" : "Collapse"; if (mn) closeSettings(); return; }
+    if (act === "settings") { els.settings.style.display = els.settings.style.display === "none" ? "" : "none"; return; }
     if (act === "logtoggle") { const o = els.logwrap.classList.toggle("open"); e.target.textContent = o ? "Log ▴" : "Log ▾"; savePrefs({ logOpen: o }); return; }
     if (act === "reloadclub") return startClubLoad(1, true);
     if (act === "rar") return toggleRarPanel();
@@ -988,6 +1000,7 @@
     p.style.width = w + "px";
   }
   function closeRar() { els.rarpanel.classList.remove("open"); }
+  function closeSettings() { if (els.settings) els.settings.style.display = "none"; }
   function toggleRarPanel() {
     const open = els.rarpanel.classList.toggle("open");
     if (!open) return;
