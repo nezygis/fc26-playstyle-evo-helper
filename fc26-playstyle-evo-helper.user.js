@@ -596,7 +596,7 @@
     #fcevo{--ink:#0b0f14;--char:#141b23;--char2:#1d2732;--line:#28323d;--line2:#394653;
       --bone:#e7edf3;--ash:#899;--acc:#33d6c1;--acc-ink:#052420;--good:#4fd08a;--bad:#ff6b6b;--warn:#f2c14e;
       --gold1:#f6d879;--gold2:#c9942f;--mono:ui-monospace,Menlo,Consolas,monospace;--grot:-apple-system,"Helvetica Neue",Arial,sans-serif;
-      position:fixed;top:54px;right:16px;width:384px;max-height:90vh;z-index:2147483647;background:var(--ink);color:var(--bone);
+      position:fixed;top:54px;right:16px;width:min(384px, calc(100vw - 20px));max-height:90vh;z-index:2147483647;background:var(--ink);color:var(--bone);
       font:12px/1.45 var(--grot);border:1px solid var(--line2);box-shadow:0 26px 64px -24px #000;display:flex;flex-direction:column;overflow:hidden}
     #fcevo *{box-sizing:border-box}
     #fcevo select,#fcevo input{min-width:0}
@@ -833,6 +833,20 @@
       queuesec: q("#fcevo-auto"), qlist: q("#fcevo-qlist"), qcount: q("#fcevo-qcount"),
     };
     function q(s) { return root.querySelector(s); }
+    // Keep the panel fully within the viewport (guards against a stale saved
+    // position or a small/mobile screen leaving it partly off-screen).
+    function clampPanel() {
+      const w = root.offsetWidth, h = root.offsetHeight || 60, m = 8;
+      const r = root.getBoundingClientRect();
+      let left = r.left, top = r.top, fix = false;
+      const maxLeft = Math.max(m, window.innerWidth - w - m);
+      const maxTop = Math.max(m, window.innerHeight - Math.min(h, 60));
+      if (left > maxLeft) { left = maxLeft; fix = true; }
+      if (left < m) { left = m; fix = true; }
+      if (top > maxTop) { top = maxTop; fix = true; }
+      if (top < m) { top = m; fix = true; }
+      if (fix) { root.style.right = "auto"; root.style.left = left + "px"; root.style.top = top + "px"; }
+    }
 
     root.addEventListener("click", onClick);
     let searchTimer = null;
@@ -864,6 +878,7 @@
     if (Number.isFinite(prefs.delay)) els.delay.value = prefs.delay;
     if (typeof prefs.claim === "boolean") els.claim.checked = prefs.claim;
     if (prefs.pos && prefs.pos.left) { root.style.right = "auto"; root.style.left = prefs.pos.left; root.style.top = prefs.pos.top; }
+    clampPanel(); // keep the panel fully on-screen (stale saved pos, small/mobile screens)
     if (prefs.startMin) { root.classList.add("min"); const mb = root.querySelector('[data-act="min"]'); if (mb) mb.title = "Expand"; }
     els.delay.addEventListener("change", () => savePrefs({ delay: +els.delay.value }));
     els.claim.addEventListener("change", () => savePrefs({ claim: els.claim.checked }));
@@ -875,7 +890,7 @@
 
     // Close the rarity dropdown if the panel scrolls or resizes.
     root.querySelector(".body").addEventListener("scroll", () => closeRar(), { passive: true });
-    window.addEventListener("resize", () => closeRar());
+    window.addEventListener("resize", () => { closeRar(); clampPanel(); });
     // Close the rarity dropdown / settings when clicking outside them.
     document.addEventListener("mousedown", (e) => {
       if (els.rarpanel.classList.contains("open") && !els.rarpanel.contains(e.target) && !els.rarbtn.contains(e.target)) closeRar();
