@@ -570,6 +570,33 @@
     return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
   const rarityAllowed = (it) => !state.rarities.size || state.rarities.has(it.rareflag);
+  // True when this card itself already carries an evolution. Such a card is NOT
+  // dead — you can keep adding PlayStyles to it (up to caps). It's the player's
+  // one allowed evo version.
+  const isEvoed = (it) => {
+    try { if (it.canRemoveEvolution && it.canRemoveEvolution()) return true; } catch (_) {}
+    try { if (it.isAcademyGraduateWithStatUpgrade && it.isAcademyGraduateWithStatUpgrade()) return true; } catch (_) {}
+    return false;
+  };
+  // EA allows only ONE evolved copy per player. If an evolved copy of a card
+  // (matched by definitionId) already exists, the CLEAN duplicates of that same
+  // card can't be evolved — so hide those, but keep the evolved one.
+  function pickable(it) {
+    if (!rarityAllowed(it)) return false;
+    if (isEvoed(it)) return true; // the allowed evo version — keep it
+    return !blockedDefs().has(it.definitionId); // clean dupe of an evolved card -> hide
+  }
+  // Memoized set of definitionIds that have an evolved copy in the club. Recomputes
+  // when the club (re)loads — keyed on the source array reference + length.
+  let _bdSrc, _bdLen = -1, _bdOut = null;
+  function blockedDefs() {
+    const src = clubPlayers();
+    if (src === _bdSrc && src.length === _bdLen && _bdOut) return _bdOut;
+    _bdSrc = src; _bdLen = src.length;
+    _bdOut = new Set();
+    src.forEach((it) => { if (isEvoed(it) && it.definitionId != null) _bdOut.add(it.definitionId); });
+    return _bdOut;
+  }
 
   // EA's own name for "1v1 Close Down" is "Rush Out"; alias it for display only —
   // internal keys, ROLES and icon mapping keep the catalog name.
@@ -1050,7 +1077,7 @@
   // The one club list, shared by Single (click to pick) and Auto (tick to select).
   function renderList() {
     const box = els.list; if (!box) return; box.innerHTML = "";
-    const all = clubPlayers().filter(rarityAllowed);
+    const all = clubPlayers().filter(pickable);
     if (!all.length) { box.innerHTML = `<div class="rhint">Club still loading&hellip;</div>`; updateRunBtn(); return; }
     const matches = (searchQ ? all.filter((it) => playerName(it).toLowerCase().includes(searchQ)) : all)
       .sort((a, b) => (b.rating || 0) - (a.rating || 0));
