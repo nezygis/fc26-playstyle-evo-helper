@@ -1,0 +1,28 @@
+# The repo tracks only: fc26-playstyle-evo-helper.user.js, README.md, LICENSE, demo.mp4.
+# Everything below is local dev / recording / editing work — never published.
+
+# session / secrets
+.demo-state.json
+
+# recording + captioning tooling
+record-demo.cjs
+captions.ass
+demo-video/
+mov_frames/
+
+# media working files (keep only demo.mp4)
+*.webm
+*.mov
+demo-*.mp4
+*.png
+
+# local dev workspace (source, data, captures, scratch docs)
+src/
+data/
+captures/
+README2.md
+node_modules/
+.DS_Store
+*.log
+*.tmp
+/tmp/
