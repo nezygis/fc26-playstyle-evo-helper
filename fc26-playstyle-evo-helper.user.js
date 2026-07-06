@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PlayStyle Evo Helper — FC26
 // @namespace    https://github.com/nezygis/fc26-playstyle-evo-helper
-// @version      1.0.3
+// @version      1.1.0
 // @description  Batch-apply PlayStyle / PlayStyle+ evolutions to a single player on the EA FC 26 web app, with role-based suggestions, rarity-eligibility filtering, and live caps.
 // @author       nezygis
 // @homepageURL  https://github.com/nezygis/fc26-playstyle-evo-helper
@@ -50,6 +50,21 @@
   PS.sort(byBaseName);
   PSP.sort(byBaseName);
   const ALL = PS.concat(PSP);
+  // EA groups PlayStyles into these six categories in the in-game UI; the grid
+  // mirrors that grouping (and order) so it matches the player's mental model.
+  const CAT_ORDER = ["Finishing", "Passing", "Defending", "Ball Control", "Physical", "Goalkeeping"];
+  const CAT_OF = {
+    "Finesse Shot": "Finishing", "Chip Shot": "Finishing", "Power Shot": "Finishing", "Dead Ball": "Finishing",
+    "Precision Header": "Finishing", "Acrobatic": "Finishing", "Low Driven Shot": "Finishing", "Gamechanger": "Finishing",
+    "Incisive Pass": "Passing", "Pinged Pass": "Passing", "Long Ball Pass": "Passing", "Tiki Taka": "Passing",
+    "Whipped Pass": "Passing", "Inventive": "Passing",
+    "Jockey": "Defending", "Block": "Defending", "Intercept": "Defending", "Anticipate": "Defending",
+    "Slide Tackle": "Defending", "Aerial Fortress": "Defending",
+    "Technical": "Ball Control", "Rapid": "Ball Control", "First Touch": "Ball Control", "Trickster": "Ball Control", "Press Proven": "Ball Control",
+    "Quick Step": "Physical", "Relentless": "Physical", "Long Throw": "Physical", "Bruiser": "Physical", "Enforcer": "Physical",
+    "Far Throw": "Goalkeeping", "Footwork": "Goalkeeping", "Cross Claimer": "Goalkeeping", "1v1 Close Down": "Goalkeeping",
+    "Far Reach": "Goalkeeping", "Deflector": "Goalkeeping",
+  };
   const traitName = {}; // traitId -> display name (base name, no '+')
   PS.forEach((x) => (traitName[x.r - TRAIT_OFFSET] = x.n));
 
@@ -58,6 +73,94 @@
   const psByName = {}, pspByName = {};
   PS.forEach((x) => (psByName[x.n] = x));
   PSP.forEach((x) => (pspByName[x.n.replace(/\+$/, "")] = x)); // keyed by base name
+
+  // ==========================================================================
+  // Stat-weighted scoring (beta). Reorders a role's playstyles by how well THIS
+  // card's attributes + height support each one. Purely additive — it annotates,
+  // it never changes what Apply or ✨ Suggest do. Mirrors the role-weighted
+  // approach the meta sites use (fut.gg GG Rating, EasySBC): the role decides
+  // which attributes matter, each playstyle is scored on the attributes it leans
+  // on, and height nudges a handful of aerial/agility traits.
+  // getSubAttributes() returns [{type, rating}]; this type->key map was confirmed
+  // by matching every value against the in-game Attributes panel (all 34 line up).
+  const SUB_ATTR = {
+    0: "acceleration", 1: "sprintspeed", 2: "agility", 3: "balance", 4: "jumping", 5: "stamina",
+    6: "strength", 7: "reactions", 8: "aggression", 9: "composure", 10: "interceptions",
+    11: "positioning", 12: "vision", 13: "ballcontrol", 14: "crossing", 15: "dribbling",
+    16: "finishing", 17: "fkaccuracy", 18: "heading", 19: "longpassing", 20: "shortpassing",
+    21: "defaware", 22: "shotpower", 23: "longshots", 24: "standtackle", 25: "slidetackle",
+    26: "volleys", 27: "curve", 28: "penalties",
+    29: "gkdiving", 30: "gkhandling", 31: "gkkicking", 32: "gkreflexes", 33: "gkpositioning",
+  };
+  // Prettier labels for the score "why" line.
+  const ATTR_LABEL = {
+    acceleration: "accel", sprintspeed: "sprint", ballcontrol: "ball ctrl", shortpassing: "short pass",
+    longpassing: "long pass", fkaccuracy: "FK acc", defaware: "def aware", standtackle: "stand tkl",
+    slidetackle: "slide tkl", shotpower: "shot pwr", longshots: "long shots", gkdiving: "GK dive",
+    gkhandling: "GK hands", gkkicking: "GK kick", gkreflexes: "GK reflex", gkpositioning: "GK pos",
+  };
+  const labelOf = (k) => ATTR_LABEL[k] || k;
+  const FACE_KEYS = ["pace", "shooting", "passing", "dribbling", "defending", "physical"];
+  // Which sub-attributes each PlayStyle (base name) leans on. Aerial traits use
+  // heading+jumping+strength (better than a raw height number, which isn't exposed
+  // on the club item anyway). Unlisted playstyles score on role-priority alone.
+  const PS_ATTR = {
+    "Rapid": ["acceleration", "sprintspeed"], "Quick Step": ["acceleration", "agility"],
+    "Relentless": ["stamina", "sprintspeed"], "Trickster": ["dribbling", "agility", "ballcontrol"],
+    "Technical": ["dribbling", "ballcontrol", "agility"], "First Touch": ["ballcontrol", "composure"],
+    "Finesse Shot": ["finishing", "curve"], "Low Driven Shot": ["finishing", "shotpower"],
+    "Power Shot": ["shotpower", "strength"], "Chip Shot": ["finishing", "composure"],
+    "Dead Ball": ["fkaccuracy", "curve"], "Precision Header": ["heading", "jumping"],
+    "Acrobatic": ["agility", "volleys", "finishing"], "Incisive Pass": ["shortpassing", "vision"],
+    "Pinged Pass": ["shortpassing", "longpassing"], "Long Ball Pass": ["longpassing", "vision"],
+    "Whipped Pass": ["crossing", "curve"], "Tiki Taka": ["shortpassing", "ballcontrol"],
+    "Inventive": ["vision", "shortpassing"], "Gamechanger": ["vision", "dribbling"],
+    "Intercept": ["interceptions", "defaware"], "Anticipate": ["defaware", "reactions"],
+    "Slide Tackle": ["slidetackle", "defaware"], "Block": ["defaware", "strength"],
+    "Jockey": ["defaware", "agility"], "Bruiser": ["strength", "aggression"],
+    "Enforcer": ["strength", "aggression"], "Aerial Fortress": ["heading", "jumping", "strength"],
+    "Press Proven": ["stamina", "aggression"],
+    "Far Reach": ["gkreflexes", "gkpositioning"], "Footwork": ["gkdiving", "gkreflexes"],
+    "1v1 Close Down": ["gkpositioning", "gkreflexes"], "Deflector": ["gkreflexes", "gkhandling"],
+    "Cross Claimer": ["gkhandling", "jumping"], "Far Throw": ["gkkicking", "strength"],
+  };
+  // Read a card's attributes as normalized 0..1 values. Prefers the fine-grained
+  // sub-attributes (getSubAttributes); falls back to the 6 face stats, then to none
+  // (scoring then uses role consensus only). _coverage reflects what resolved.
+  function readAttrs(it) {
+    const out = {}, norm = (v) => Math.max(0, Math.min(1, v / 99));
+    let subFound = 0;
+    try {
+      const subs = it && it.getSubAttributes && it.getSubAttributes();
+      if (Array.isArray(subs)) subs.forEach((s) => {
+        const k = SUB_ATTR[s && s.type];
+        if (k && s.rating > 0) { out[k] = norm(s.rating); subFound++; }
+      });
+    } catch (_) {}
+    let faceFound = 0, face = null;
+    try { face = it && it.getAttributes && it.getAttributes(); } catch (_) {}
+    if (!(face && face.length >= 6)) { try { face = it && it.attributes; } catch (_) {} }
+    if (face && face.length >= 6) FACE_KEYS.forEach((k, i) => { const v = +face[i]; if (v > 0) { out[k] = norm(v); faceFound++; } });
+    out._sub = subFound > 0;
+    out._coverage = subFound > 0 ? Math.min(1, subFound / 29) : faceFound / 6;
+    return out;
+  }
+  // Score a candidate playstyle for a card in a role: {score 0..100, why}. Blends
+  // the role-consensus rank (from the fut.gg-derived list) with how well the card's
+  // relevant sub-attributes support the playstyle.
+  function scoreEvo(it, baseName, idx, listLen, attrs) {
+    const prior = listLen ? (listLen - idx) / listLen : 0.5; // role consensus rank
+    let fit = 0.6, why = "role rank #" + (idx + 1), topKey = null, topVal = 0;
+    const keys = PS_ATTR[baseName];
+    if (attrs._coverage > 0 && keys) {
+      let sum = 0, n = 0;
+      keys.forEach((k) => { const v = attrs[k]; if (v != null) { sum += v; n++; if (v > topVal) { topVal = v; topKey = k; } } });
+      if (n) fit = sum / n;
+    }
+    const score = Math.round(Math.max(0, Math.min(100, 100 * (0.5 * prior + 0.5 * fit))));
+    if (topKey) why = labelOf(topKey) + " " + Math.round(topVal * 99);
+    return { score, why };
+  }
 
   // rareflag ids these evos can be applied to (defaults the club-search filter).
   const ELIGIBLE_RARITIES = [30,94,98,109];
@@ -71,7 +174,7 @@
   };
 
   // rareflag -> name (EA obfuscates in-app names). Editable via data/rarities.json.
-  const RARITIES = {"0":"Common","1":"Rare","3":"Team of the Week","5":"Team of the Year","8":"Star Performer","11":"Team of the Season","12":"Icon","14":"Knockout Royalty Hero","15":"Knockout Royalty ICON","18":"Festival of Football ICON","20":"FoF: Answer the Call","21":"Prime Hero","22":"Ratings Reload","23":"Future Stars Hero","26":"UCL Primetime Hero","27":"UWCL Primetime Hero","28":"Festival of Football: Captains","30":"FUT Birthday","31":"UEFA Women's Champions League Primetime","32":"UEFA Women's Champions League Road to the Final","33":"Thunderstruck","34":"FC Pro Live","35":"Winter Wildcards ICON","36":"Journey of Nations","46":"UEFA Europa League Primetime","49":"Winter Wildcards Hero","50":"UEFA Champions League Primetime","55":"Knockout Royalty","57":"Showdown Upgrade","58":"Showdown","62":"Festival of Football Showdown","63":"Festival of Football Showdown Upgrade","64":"TOTY Honourable Mentions","65":"TOTS Honourable Mentions","69":"World Tour Silver Superstar","71":"Future Stars","72":"Heroes","76":"Trophy Titans ICON","77":"Trophy Titans Hero","81":"Classic XI Hero","82":"Unbreakables","83":"Unbreakables Hero","85":"Unbreakables ICON","88":"Unbreakables Evolution","90":"Moments","91":"World Tour","94":"Festival of Football: Star Performer","96":"Joga Bonito","97":"Joga Bonito Hero","104":"Festival of Football: Glory Hunters Red","105":"UEFA Conference League Primetime","107":"Festival of Football: Path to Glory","108":"Time Warp","109":"Festival of Football: Glory Hunters","111":"Fantasy FC","112":"Time Warp ICON","116":"Festival of Football: Captains ICON","117":"Winter Wildcards","120":"TOTS Breakthrough","124":"UEFA Champions League Road to the Final","125":"UEFA Europa League Road to the Final","126":"UEFA Conference League Road to the Final","130":"Festival of Football: Greats of the Game Hero","131":"Festival of Football: Greats of the Game ICON","132":"TOTY HM Evolution","135":"Fantasy FC Hero","147":"FUT Birthday EVO","148":"FUT Birthday Hero","149":"FUT Birthday ICON","150":"Cornerstones","151":"Ultimate Scream","155":"Team of the Year ICON","157":"Thunderstruck ICON","168":"Ultimate Scream Hero","170":"Future Stars ICON"};
+  const RARITIES = {"0":"Common","1":"Rare","3":"Team of the Week","5":"Team of the Year","8":"Star Performer","11":"Team of the Season","12":"Icon","14":"Knockout Royalty Hero","15":"Knockout Royalty ICON","18":"Festival of Football ICON","20":"FoF: Answer the Call","21":"Prime Hero","22":"Ratings Reload","23":"Future Stars Hero","26":"UCL Primetime Hero","27":"UWCL Primetime Hero","28":"Festival of Football: Captains","30":"FUT Birthday","31":"UEFA Women's Champions League Primetime","32":"UEFA Women's Champions League Road to the Final","33":"Thunderstruck","34":"FC Pro Live","35":"Winter Wildcards ICON","36":"Journey of Nations","46":"UEFA Europa League Primetime","49":"Winter Wildcards Hero","50":"UEFA Champions League Primetime","55":"Knockout Royalty","57":"Showdown Upgrade","58":"Showdown","62":"Festival of Football Showdown","63":"Festival of Football Showdown Upgrade","64":"TOTY Honourable Mentions","65":"TOTS Honourable Mentions","69":"World Tour Silver Superstar","71":"Future Stars","72":"Heroes","76":"Trophy Titans ICON","77":"Trophy Titans Hero","81":"Classic XI Hero","82":"Unbreakables","83":"Unbreakables Hero","85":"Unbreakables ICON","88":"Unbreakables Evolution","90":"Moments","91":"World Tour","94":"Festival of Football: Star Performer","96":"Joga Bonito","97":"Joga Bonito Hero","98":"Festival of Football: National Pride","104":"Festival of Football: Glory Hunters Red","105":"UEFA Conference League Primetime","107":"Festival of Football: Path to Glory","108":"Time Warp","109":"Festival of Football: Glory Hunters","111":"Fantasy FC","112":"Time Warp ICON","116":"Festival of Football: Captains ICON","117":"Winter Wildcards","120":"TOTS Breakthrough","124":"UEFA Champions League Road to the Final","125":"UEFA Europa League Road to the Final","126":"UEFA Conference League Road to the Final","130":"Festival of Football: Greats of the Game Hero","131":"Festival of Football: Greats of the Game ICON","132":"TOTY HM Evolution","135":"Fantasy FC Hero","147":"FUT Birthday EVO","148":"FUT Birthday Hero","149":"FUT Birthday ICON","150":"Cornerstones","151":"Ultimate Scream","155":"Team of the Year ICON","157":"Thunderstruck ICON","168":"Ultimate Scream Hero","170":"Future Stars ICON"};
 
   const state = {
     item: null, // selected club item entity
@@ -79,10 +182,23 @@
     running: false, abort: false,
     rarities: new Set(), // allowed rareflags for club search; empty = all
     clubItems: null, // players we loaded ourselves (full club / eligible rarities)
+    autoSync: false, // follow the player opened in the EA detail view
   };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const ACAD = () => (window.services && window.services.Academy) || (typeof services !== "undefined" ? services.Academy : null);
   const CLUB = () => { try { return window.repositories.Item.getClub(); } catch (_) { return null; } };
+
+  // Preference persistence via localStorage (keeps the script at @grant none —
+  // no Tampermonkey storage privileges needed). All keys namespaced under fcevo:.
+  const PREFS_KEY = "fcevo:prefs";
+  function loadPrefs() { try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch (_) { return {}; } }
+  function savePrefs(patch) {
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(Object.assign(loadPrefs(), patch))); } catch (_) {}
+  }
+  const prefs = loadPrefs();
+  // Randomize the gap between applies by ±35% so the cadence isn't a fixed
+  // machine-perfect interval. Purely a timing tweak; does not change what runs.
+  const jitter = (ms) => Math.max(120, Math.round(ms * (0.65 + Math.random() * 0.7)));
 
   // --- Engine ---------------------------------------------------------------
   function svcObserve(observable) {
@@ -105,7 +221,7 @@
     if (!slotIds.length) return log("✋ Nothing selected.", "warn");
     state.running = true; state.abort = false; setRunning(true);
     const itemId = state.item.id;
-    let ok = 0, fail = 0;
+    let ok = 0, fail = 0; const done = [];
     log(`▶ ${slotIds.length} evo(s) → ${playerName(state.item)} (delay ${opts.delayMs}ms, claim=${opts.claim})`, "head");
     for (let i = 0; i < slotIds.length; i++) {
       if (state.abort) { log("⏹ Aborted.", "warn"); break; }
@@ -115,14 +231,34 @@
         const res = await applyEvo(slotIds[i], itemId);
         if (res.data && res.data.isMaximumNumberOfSlotsReached) log(`⚠ ${tag}: max active slots — claim needed`, "warn");
         if (opts.claim) { try { await claimEvo(slotIds[i]); } catch (ce) { log(`   (claim skipped: ${errMsg(ce)})`, "dim"); } }
-        ok++; log(`✔ ${tag}`, "ok");
+        ok++; done.push(slotIds[i]); log(`✔ ${tag}`, "ok");
       } catch (e) { fail++; log(`✗ ${tag} — ${errMsg(e)}`, "err"); }
-      if (i < slotIds.length - 1 && !state.abort) await sleep(opts.delayMs);
+      if (i < slotIds.length - 1 && !state.abort) await sleep(jitter(opts.delayMs));
     }
+    // Applied evos are now owned by the player; drop them from the selection so the
+    // count and cap projection don't double-count them against the fresh entity.
+    done.forEach((s) => state.selected.delete(s));
     refreshClub();
-    // refresh preview (counts/playstyles changed)
-    try { state.item = findItemById(itemId) || state.item; } catch (_) {}
-    renderPreview(); renderGrid();
+    // Re-read the just-modified player from its authoritative source and swap the
+    // fresh instance into our loaded snapshot, so the preview shows the newly
+    // applied playstyles/counts instead of the stale search copy. Reassigning the
+    // array (new reference) busts the clubPlayers() memo.
+    try {
+      const fresh = freshItemById(itemId);
+      if (fresh) {
+        state.item = fresh;
+        if (state.clubItems && state.clubItems.length) {
+          state.clubItems = state.clubItems.map((x) => (x && (x.id === itemId || x.id === Number(itemId)) ? fresh : x));
+        }
+      }
+    } catch (_) {}
+    renderPreview(); renderGrid(); updateCount(); renderMetaRank();
+    // The in-place read can still be stale — EA only reflects an applied evo in the
+    // item model after a server re-fetch. Reload so the new playstyles actually show.
+    if (ok > 0) {
+      try { await reloadAndReselect(itemId); } catch (_) {}
+      renderPreview(); renderGrid(); updateCount(); renderMetaRank();
+    }
     state.running = false; setRunning(false);
     log(`■ Done: ${ok} ok, ${fail} failed.`, "head");
   }
@@ -148,12 +284,20 @@
   const byId = (s) => ALL.find((x) => x.s === s);
 
   // --- Player helpers -------------------------------------------------------
+  // Memoized: the source array reference + length change whenever the club is
+  // (re)loaded, so this recomputes exactly when it needs to and is otherwise free
+  // for the many render paths that call it per keystroke.
+  let _cpSrc, _cpLen = -1, _cpOut = null;
   function clubPlayers() {
     // Prefer the items we loaded ourselves (full / eligible); fall back to whatever
     // the app has cached (usually just the active squad).
     let items = state.clubItems;
     if (!items || !items.length) { const c = CLUB(); items = (c && (c.items || (c.getItems ? c.getItems() : []))) || []; }
-    return (items || []).filter((it) => { try { return it && it.isPlayer && it.isPlayer(); } catch (_) { return false; } });
+    items = items || [];
+    if (items === _cpSrc && items.length === _cpLen && _cpOut) return _cpOut;
+    _cpOut = items.filter((it) => { try { return it && it.isPlayer && it.isPlayer(); } catch (_) { return false; } });
+    _cpSrc = items; _cpLen = items.length;
+    return _cpOut;
   }
   // Build a club search criteria (UTSearchCriteriaDTO), optionally rarity-filtered.
   function makeClubCriteria(offset, count, rarities) {
@@ -190,25 +334,38 @@
   }
   // Load club players via paginated search. With `rarities`, only those load.
   // Throws if the FIRST page fails (app not ready) so the caller can retry.
+  // The first page is fetched alone (readiness probe); the rest are fetched in
+  // parallel batches, which is the bulk of the speedup over one-at-a-time.
   async function loadClub(rarities) {
     if (!(window.services && window.services.Club && window.services.Club.search)) throw new Error("Club service unavailable");
+    const PAGE = 91, BATCH = 4;
     const all = [], seen = new Set();
-    let offset = 0, guard = 0;
-    while (guard++ < 80) {
-      const crit = makeClubCriteria(offset, 91, rarities);
-      if (!crit) throw new Error("no UTSearchCriteriaDTO");
-      let res;
-      try { res = await svcObserve(window.services.Club.search(crit)); }
-      catch (e) { if (offset === 0) throw e; break; } // first page fails -> not ready; later -> keep partial
+    const add = (res) => {
       const items = (res && res.response && res.response.items) || (res && res.data && res.data.items) || [];
-      if (!items.length) break;
-      let added = 0;
-      for (const it of items) { const id = it && it.id; if (id != null && !seen.has(id)) { seen.add(id); all.push(it); added++; } }
-      offset += items.length;
+      for (const it of items) { const id = it && it.id; if (id != null && !seen.has(id)) { seen.add(id); all.push(it); } }
+      return items.length;
+    };
+    const fetchPage = (offset) => {
+      const crit = makeClubCriteria(offset, PAGE, rarities);
+      if (!crit) throw new Error("no UTSearchCriteriaDTO");
+      return svcObserve(window.services.Club.search(crit));
+    };
+    // First page alone so an app-not-ready failure propagates to the retry wrapper.
+    let done = add(await fetchPage(0)) < PAGE;
+    let offset = PAGE, guard = 0;
+    while (!done && guard++ < 40) {
+      const offsets = [];
+      for (let b = 0; b < BATCH; b++) { offsets.push(offset); offset += PAGE; }
+      // A mid-run page failure yields null (skip that page, keep the rest) rather
+      // than aborting the whole load.
+      const results = await Promise.all(offsets.map((o) => fetchPage(o).catch(() => null)));
+      for (const res of results) {
+        if (!res) continue;
+        if (add(res) < PAGE) done = true; // a short/empty page means we hit the end
+      }
       state.clubItems = all.slice();
       setClubStatus("Club: loading… " + all.length + " players", "load");
-      if (added === 0) break;
-      await sleep(120);
+      if (!done) await sleep(80);
     }
     state.clubItems = all;
     if (els.rarpanel) els.rarpanel.dataset.built = ""; // rebuild rarity list with real counts
@@ -225,7 +382,7 @@
     try {
       const n = await loadClub(rarities);
       if (!n) throw new Error("0 players returned");
-      setClubStatus("Club: " + n + " players loaded" + (rarities ? " (eligible)" : "") + " · ↻", "ok");
+      setClubStatus("Club: " + n + " players loaded" + (rarities ? " (eligible)" : "") + " · click to reload", "ok");
       clubLoading = false;
     } catch (e) {
       clubLoading = false;
@@ -238,6 +395,38 @@
     }
   }
   function findItemById(id) { return clubPlayers().find((it) => it.id === id || it.id === Number(id)); }
+  // After an evo is applied the game mutates the entity it holds authoritatively —
+  // the one in the live club repo, and the one behind the open detail panel. Our
+  // own loaded snapshot (state.clubItems, from services.Club.search) can be a
+  // different, now-stale instance, so pull the freshest copy for this id.
+  function freshItemById(id) {
+    const nid = Number(id), same = (it) => it && (it.id === id || it.id === nid);
+    try { const e = openEntity(); if (same(e)) return e; } catch (_) {}
+    try {
+      const c = CLUB(), items = c && (c.items || (c.getItems ? c.getItems() : []));
+      const hit = items && items.find(same);
+      if (hit) return hit;
+    } catch (_) {}
+    return findItemById(id) || null;
+  }
+  // Applied evos are only reflected in the local item model after the club is
+  // re-fetched from the server (the same effect as the "click to reload" status).
+  // Reload, then re-select the player by id so the new playstyles/counts render.
+  async function reloadAndReselect(itemId) {
+    if (!(window.services && window.services.Club && window.services.Club.search)) return false;
+    const rarities = (ELIGIBLE_RARITIES && ELIGIBLE_RARITIES.length) ? ELIGIBLE_RARITIES : null;
+    setClubStatus("Club: refreshing after apply…", "load");
+    try {
+      const n = await loadClub(rarities);
+      setClubStatus("Club: " + n + " players loaded" + (rarities ? " (eligible)" : "") + " · click to reload", "ok");
+      const again = findItemById(itemId);
+      if (again) state.item = again;
+      return true;
+    } catch (e) {
+      setClubStatus("Club: refresh failed (" + errMsg(e) + ") — click to reload", "err");
+      return false;
+    }
+  }
   function playerName(it) {
     try { const sd = it.getStaticData ? it.getStaticData() : it._staticData; if (sd && sd.name) return sd.name; } catch (_) {}
     return "Player";
@@ -333,79 +522,220 @@
   }
   const rarityAllowed = (it) => !state.rarities.size || state.rarities.has(it.rareflag);
 
+  // EA's own name for "1v1 Close Down" is "Rush Out"; alias it for display only —
+  // internal keys, ROLES and icon mapping keep the catalog name.
+  const ALIAS = { "1v1 Close Down": "Rush Out" };
+  const dispName = (base) => ALIAS[base] || base;
+  // One-line PlayStyle explanations (FC 26) for tooltips.
+  const PS_DESC = {
+    "Finesse Shot": "Finesse shots are faster, curl harder and land more accurately.",
+    "Chip Shot": "Chips and lobs dip more sharply with better accuracy and pace.",
+    "Power Shot": "Power shots wind up faster and fly flatter and harder.",
+    "Dead Ball": "Direct free kicks get a shot-aim aid, extra curve and power.",
+    "Precision Header": "Headed shots, passes and clearances are faster and more accurate.",
+    "Acrobatic": "Volleys and acrobatic finishes are quicker and more reliable.",
+    "Low Driven Shot": "Driven shots stay low and skid, harder for keepers to reach.",
+    "Gamechanger": "Shots from outside the box are faster and more accurate.",
+    "Incisive Pass": "Through balls are faster and more accurate, splitting defences.",
+    "Pinged Pass": "Driven ground passes are faster and more accurate.",
+    "Long Ball Pass": "Long and lofted passes are faster and more accurate at range.",
+    "Tiki Taka": "Short ground passes are quicker, tighter and first-time capable.",
+    "Whipped Pass": "Crosses carry more pace, curve and accuracy.",
+    "Inventive": "Flair passes (scoop, no-look) land more reliably.",
+    "Jockey": "Faster, more responsive jockeying to contain attackers.",
+    "Block": "Wider, more effective blocks of shots and passes.",
+    "Intercept": "Greater reach and success reading and cutting out passes.",
+    "Anticipate": "Cleaner, safer standing tackles that win the ball at the feet.",
+    "Slide Tackle": "Longer-range, more accurate slide tackles.",
+    "Aerial Fortress": "Wins more aerial duels with better jump, reach and timing.",
+    "Technical": "Tighter close control and quicker, cleaner dribble touches.",
+    "Rapid": "Accelerates faster while sprint-dribbling with the ball.",
+    "First Touch": "Cleaner traps with less error, keeping the ball close.",
+    "Trickster": "Performs skill moves faster while keeping the ball tight.",
+    "Press Proven": "Holds up under pressure, losing less control when challenged.",
+    "Quick Step": "Explosive acceleration off the ball to burst into space.",
+    "Relentless": "Loses stamina slower and recovers more at halftime.",
+    "Long Throw": "Throw-ins travel much farther, right into the box.",
+    "Bruiser": "Wins more physical battles with stronger shoulder challenges.",
+    "Enforcer": "Stronger in duels and quicker to recover after tackles.",
+    "Far Throw": "Keeper throws travel farther and faster to launch attacks.",
+    "Footwork": "Quicker keeper footwork and sharper reflex saves.",
+    "Cross Claimer": "Commands the box and claims crosses more reliably.",
+    "1v1 Close Down": "Rushes out faster and smothers one-on-ones (a.k.a. Rush Out).",
+    "Far Reach": "Extra reach on dives to keep out shots bound for the corners.",
+    "Deflector": "Parries shots into safer areas with stronger deflections.",
+  };
+  const psDesc = (base) => PS_DESC[base] || "";
+
   // ==========================================================================
   // UI
   // ==========================================================================
   let els = {}, tab = "PS+", filter = "", searchQ = "";
+  let comboOpen = false, comboHl = 0; // club-search dropdown (combobox) state
+  let rarQ = ""; // rarity dropdown filter query
 
   function css() {
     const s = document.createElement("style");
     s.textContent = `
-    #fcevo{position:fixed;top:54px;right:16px;width:360px;max-height:90vh;z-index:2147483647;background:#0f141a;color:#e7edf3;
-      font:12px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;border:1px solid #2a3b4d;border-radius:11px;box-shadow:0 10px 34px rgba(0,0,0,.55);display:flex;flex-direction:column;overflow:hidden}
+    #fcevo{--ink:#0b0f14;--char:#141b23;--char2:#1d2732;--line:#28323d;--line2:#394653;
+      --bone:#e7edf3;--ash:#899;--acc:#33d6c1;--acc-ink:#052420;--good:#4fd08a;--bad:#ff6b6b;--warn:#f2c14e;
+      --gold1:#f6d879;--gold2:#c9942f;--mono:ui-monospace,Menlo,Consolas,monospace;--grot:-apple-system,"Helvetica Neue",Arial,sans-serif;
+      position:fixed;top:54px;right:16px;width:366px;max-height:90vh;z-index:2147483647;background:var(--ink);color:var(--bone);
+      font:12px/1.45 var(--grot);border:1px solid var(--line2);box-shadow:0 26px 64px -24px #000;display:flex;flex-direction:column;overflow:hidden}
     #fcevo *{box-sizing:border-box}
     #fcevo select,#fcevo input{min-width:0}
-    #fcevo header{display:flex;align-items:center;gap:8px;padding:9px 11px;background:#15202b;cursor:move;user-select:none}
-    #fcevo header b{font-size:13px}#fcevo header .sp{flex:1}
-    #fcevo header button{background:#223040;color:#cfe;border:0;border-radius:5px;padding:3px 8px;cursor:pointer}
-    #fcevo .body{padding:10px;overflow:auto;display:flex;flex-direction:column;gap:9px}
+    #fcevo header{display:flex;align-items:center;gap:9px;padding:12px 13px;background:var(--char);border-bottom:1px solid var(--line);cursor:move;user-select:none}
+    #fcevo header .wm{font-weight:800;font-size:12px;letter-spacing:.16em;text-transform:uppercase}
+    #fcevo header .dia{width:7px;height:7px;background:var(--acc);transform:rotate(45deg);display:inline-block}
+    #fcevo header .sp{flex:1}
+    #fcevo header button{background:transparent;color:var(--ash);border:1px solid var(--line2);padding:4px 9px;cursor:pointer;font:600 11px/1 var(--mono);display:flex;align-items:center}
+    #fcevo header button:hover{color:var(--ink);background:var(--acc);border-color:var(--acc)}
+    #fcevo .chev{pointer-events:none;transform:rotate(0);transition:transform .32s cubic-bezier(.2,.7,.2,1)}
+    #fcevo.min .chev{transform:rotate(180deg)}
+    #fcevo .body{padding:16px 13px;overflow:auto;display:flex;flex-direction:column;gap:18px}
     #fcevo.min .body{display:none}
-    #fcevo input,#fcevo select{background:#0a0f14;border:1px solid #2a3b4d;color:#e7edf3;border-radius:6px;padding:5px 7px}
+    #fcevo input,#fcevo select{background:var(--ink);border:1px solid var(--line2);color:var(--bone);border-radius:0;padding:6px 8px;font:11px/1.3 var(--grot);accent-color:var(--acc)}
+    #fcevo input:focus,#fcevo select:focus{outline:none;border-color:var(--acc)}
+    #fcevo input::placeholder{color:var(--ash)}
     #fcevo input[type=text]{width:100%}
     #fcevo .row{display:flex;gap:6px;align-items:center}
-    #fcevo .sec{background:#0b1117;border:1px solid #1e2b38;border-radius:9px;padding:8px}
-    #fcevo .sec h4{margin:0 0 6px;font-size:11px;color:#7fb4e6;text-transform:uppercase;letter-spacing:.04em}
-    #fcevo .results{display:flex;flex-direction:column;gap:4px;margin-top:6px;max-height:240px;overflow-y:auto;padding-right:2px}
-    #fcevo .rarpanel{display:none;flex-direction:column;gap:3px;margin-top:6px;max-height:240px;overflow:auto;padding:6px;background:#0a0f14;border:1px solid #233140;border-radius:7px}
+    #fcevo .srow{align-items:stretch}
+    #fcevo .srow .rarbtn{display:flex;align-items:center}
+    #fcevo .sec{background:transparent;border:0;padding:0}
+    #fcevo .sec h4{margin:0 0 11px;font:600 10px/1 var(--mono);color:var(--ash);text-transform:uppercase;letter-spacing:.2em;
+      display:flex;align-items:baseline;gap:9px;padding-bottom:9px;border-bottom:1px solid var(--line)}
+    #fcevo .sec h4 .ix{color:var(--acc);font-weight:700;letter-spacing:.06em}
+    #fcevo .combo{position:fixed;z-index:2147483647;background:var(--char);border:1px solid var(--line2);max-height:272px;overflow-y:auto;box-shadow:0 20px 46px -18px #000;display:none}
+    #fcevo .combo .pr{padding-left:9px;padding-right:9px}
+    #fcevo .combo .pr.hl{background:var(--char2)}
+    #fcevo .rhint{padding:8px 9px;font:10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--ash)}
+    #fcevo .rarpanel{position:fixed;z-index:2147483647;display:none;flex-direction:column;max-height:300px;overflow:hidden;
+      background:var(--char);border:1px solid var(--line2);box-shadow:0 20px 46px -18px #000}
     #fcevo .rarpanel.open{display:flex}
-    #fcevo .rarpanel label{display:flex;align-items:center;gap:6px;font-size:11px;padding:3px 4px;border-radius:5px;cursor:pointer}
-    #fcevo .rarpanel label:hover{background:#13202c}
-    #fcevo .rarpanel label .rc{margin-left:auto;color:#7c8b99;font-size:10px}
-    #fcevo .pr{display:flex;align-items:center;gap:8px;padding:5px 7px;border:1px solid #20303f;border-radius:7px;cursor:pointer;background:#0d141b}
-    #fcevo .pr:hover{background:#13202c}
-    #fcevo .pr .ov{font-weight:800;color:#ffd27d;min-width:24px;text-align:center}
-    #fcevo .pr .nm{flex:1}
-    #fcevo .pr .gk{font-size:9px;color:#9adcff;border:1px solid #2c5872;border-radius:4px;padding:0 4px}
-    #fcevo .pr .psc{display:flex;gap:4px;white-space:nowrap}
-    #fcevo .pr .pchip{font-size:10px;font-weight:700;padding:0 5px;border-radius:6px;border:1px solid;background:#0d141b}
-    #fcevo .pr .pchip.room{color:#67e08a;border-color:#1f5a36}
-    #fcevo .pr .pchip.full{color:#ff7a6b;border-color:#5a2420}
-    #fcevo .card{display:flex;gap:10px;align-items:center}
-    #fcevo .card .ov{font:800 20px/1 system-ui;color:#ffd27d;min-width:40px;text-align:center}
+    #fcevo .rarhead{flex:none;display:flex;flex-direction:column;gap:7px;padding:8px;border-bottom:1px solid var(--line2)}
+    #fcevo .rarsearch{width:100%}
+    #fcevo .rarhead .allrar{padding:3px 3px 1px;border:0;font-weight:700}
+    #fcevo .rarlist{flex:1;overflow-y:auto}
+    #fcevo .rarpanel label{display:flex;align-items:center;gap:10px;font-size:12px;padding:8px 11px;cursor:pointer;border-bottom:1px solid var(--line);color:var(--bone)}
+    #fcevo .rarlist label:last-child{border-bottom:0}
+    #fcevo .rarpanel label:hover{background:var(--char2)}
+    #fcevo .rarpanel label .rc{margin-left:auto;color:var(--ash);font:10px/1 var(--mono);font-variant-numeric:tabular-nums}
+    #fcevo input[type=checkbox]{width:14px;height:14px;padding:0;border:0;background:none;accent-color:var(--acc);cursor:pointer;flex:none}
+    #fcevo .pr{display:flex;align-items:center;gap:9px;padding:8px 6px;border:0;border-bottom:1px solid var(--line);cursor:pointer;background:transparent}
+    #fcevo .pr:hover{background:var(--char2)}
+    #fcevo .pr:focus{outline:none;background:var(--char2);box-shadow:inset 2px 0 0 var(--acc)}
+    #fcevo .pr .ov{font:800 15px/1 var(--grot);color:var(--bone);min-width:26px;text-align:center;font-variant-numeric:tabular-nums}
+    #fcevo .pr .nm{flex:1;font-weight:600}
+    #fcevo .pr .gk{font:9px/1.5 var(--mono);color:var(--acc);border:1px solid var(--line2);padding:1px 4px;letter-spacing:.08em}
+    #fcevo .pr .psc{display:flex;gap:5px;white-space:nowrap;font-family:var(--mono)}
+    #fcevo .pr .pchip{font-size:10px;font-weight:700;padding:1px 5px;border:1px solid;font-variant-numeric:tabular-nums}
+    #fcevo .pr .pchip.room{color:var(--good);border-color:#2f5a2a}
+    #fcevo .pr .pchip.full{color:var(--bad);border-color:#5a2b24}
+    #fcevo .card{display:flex;gap:13px;align-items:center}
+    #fcevo .card .ov{font:800 30px/.85 var(--grot);color:var(--bone);min-width:44px;text-align:left;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
     #fcevo .card .meta{flex:1}
-    #fcevo .card .meta .pn{font-weight:700;font-size:13px}
-    #fcevo .caps{display:flex;gap:8px;margin-top:7px}
-    #fcevo .cap{flex:1;background:#0d141b;border:1px solid #20303f;border-radius:7px;padding:5px 8px;text-align:center}
-    #fcevo .cap b{font-size:15px}#fcevo .cap.full b{color:#ff7a6b}#fcevo .cap small{color:#8aa0b2;display:block}
-    #fcevo .tabs{display:flex;gap:6px}
-    #fcevo .tabs button{flex:1;background:#1b2733;border:1px solid #2a3b4d;color:#bcd;border-radius:7px;padding:6px;cursor:pointer}
-    #fcevo .tabs button.on{background:#2d6cdf;color:#fff;border-color:#2d6cdf}
-    #fcevo .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-    #fcevo .ec{position:relative;background:#0d141b;border:1px solid #233444;border-radius:9px;padding:7px 6px;cursor:pointer;text-align:center;transition:.08s}
-    #fcevo .ec:hover{border-color:#3a6ea5}
-    #fcevo .ec.sel{background:#15314f;border-color:#3d8bff;box-shadow:0 0 0 1px #3d8bff inset}
-    #fcevo .ec.owned{opacity:.45}
-    #fcevo .ec.dis{opacity:.3;cursor:not-allowed}
-    #fcevo .ec .ico{width:36px;height:36px;margin:0 auto 4px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-      background:#1d2c3a;color:#dbe7f0;border:1px solid #2c4358}
-    #fcevo .ec.psp .ico{background:linear-gradient(160deg,#3a2c00,#6b5100);color:#ffe08a;border-color:#7d6320}
-    #fcevo .ec .ico i{font-family:'UltimateTeam-Icons',sans-serif;font-style:normal;font-weight:400;font-size:21px;line-height:1}
-    #fcevo .psrow{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
-    #fcevo .psrow .chip{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:#0d141b;border:1px solid #243140;color:#cfe}
-    #fcevo .psrow .chip.ic{background:linear-gradient(160deg,#3a2c00,#6b5100);color:#ffe08a;border-color:#7d6320}
-    #fcevo .psrow .chip i{font-family:'UltimateTeam-Icons',sans-serif;font-style:normal;font-weight:400;font-size:15px;line-height:1}
-    #fcevo .ec .nm{font-size:10px;line-height:1.15;color:#dbe7f0}
-    #fcevo .ec .tag{position:absolute;top:3px;right:4px;font-size:8px;color:#9adcff}
-    #fcevo .ec .own{position:absolute;top:3px;left:4px;font-size:10px;color:#67e08a}
-    #fcevo .opts{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    #fcevo .go{background:#2f9e51;color:#fff;border:0;border-radius:8px;padding:9px;cursor:pointer;font-weight:800}
-    #fcevo .go:disabled{opacity:.5}#fcevo .stop{background:#c0392b}
-    #fcevo .mini{background:#223040;color:#cfe;border:0;border-radius:6px;padding:6px 9px;cursor:pointer}
-    #fcevo .status{font-size:11px;color:#9fb6c9;padding:2px 2px 0;min-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    #fcevo .status.ok{color:#67e08a}#fcevo .status.err{color:#ff7a6b}#fcevo .status.warn{color:#ffcf6b}#fcevo .status.head{color:#8fd6ff}#fcevo .status.dim{color:#7c8b99}
-    #fcevo .count{color:#8fd6ff;font-weight:700}#fcevo .muted{color:#7c8b99}
-    #fcevo .clubstat{margin-top:6px;padding:5px 7px;border-radius:6px;font-size:11px;background:#0d141b;border:1px solid #233140;cursor:pointer}
-    #fcevo .clubstat.load{color:#ffcf6b;border-color:#5a4a1f}#fcevo .clubstat.ok{color:#67e08a;border-color:#1f5a36}#fcevo .clubstat.err{color:#ff7a6b;border-color:#5a2420}
+    #fcevo .card .meta .pn{font-weight:800;font-size:15px;letter-spacing:-.01em}
+    #fcevo .caps{display:flex;gap:0;margin-top:11px;border:1px solid var(--line)}
+    #fcevo .cap{flex:1;background:transparent;border:0;border-right:1px solid var(--line);padding:7px 8px;text-align:left}
+    #fcevo .cap:last-child{border-right:0}
+    #fcevo .cap b{font:800 17px/1 var(--grot);font-variant-numeric:tabular-nums}#fcevo .cap.full b{color:var(--bad)}
+    #fcevo .cap small{color:var(--ash);display:block;font:9px/1.6 var(--mono);text-transform:uppercase;letter-spacing:.12em}
+    #fcevo .tabs{display:flex;gap:0;border-bottom:1px solid var(--line)}
+    #fcevo .tabs button{flex:1;background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ash);padding:8px 6px;cursor:pointer;
+      font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;margin-bottom:-1px}
+    #fcevo .tabs button:hover{color:var(--bone)}
+    #fcevo .tabs button.on{color:var(--bone);border-bottom-color:var(--acc)}
+    #fcevo .grid{display:flex;flex-direction:column;gap:14px}
+    #fcevo .gcat-h{font:600 9px/1 var(--mono);letter-spacing:.2em;text-transform:uppercase;color:var(--ash);margin:0 0 7px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+    #fcevo .gcat-row{display:flex;flex-wrap:wrap;gap:5px 4px}
+    #fcevo .metarank h4{margin:0 0 3px;font:600 10px/1 var(--mono);color:var(--ash);text-transform:uppercase;letter-spacing:.2em;display:flex;align-items:baseline;gap:8px}
+    #fcevo .metarank h4 .who{color:var(--bone);letter-spacing:.02em}
+    #fcevo .metarank code{background:var(--char2);padding:1px 4px;font-family:var(--mono)}
+    #fcevo .mlist{display:flex;flex-direction:column;gap:0;max-height:230px;overflow:auto}
+    #fcevo .mrow{display:grid;grid-template-columns:1fr 44px 26px;grid-template-areas:"n bar sc" "why bar sc";gap:0 9px;align-items:center;padding:7px 2px;border:0;border-bottom:1px solid var(--line)}
+    #fcevo .mrow.dim{opacity:.42}
+    #fcevo .mrow .mn{grid-area:n;font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #fcevo .mrow .mbar{grid-area:bar;height:3px;background:var(--line);overflow:hidden;align-self:center}
+    #fcevo .mrow .mbar i{display:block;height:100%;background:var(--acc)}
+    #fcevo .mrow .msc{grid-area:sc;text-align:right;font:800 15px/1 var(--grot);color:var(--bone);font-variant-numeric:tabular-nums}
+    #fcevo .mrow .mwhy{grid-area:why;font:9px/1.3 var(--mono);color:var(--ash);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    /* Variant B — metal identity: PlayStyle = silver diamond, PlayStyle+ = gold
+       hexagon, both drawn as clip-path shapes at the SAME 40px box so they read
+       the same size. Available = matte metal; owned recedes (dim + check);
+       selected lights up to polished metal with a same-colour glow. */
+    #fcevo .ec{position:relative;width:56px;padding:5px 2px 4px;cursor:pointer;text-align:center;transition:background .1s}
+    #fcevo .ec:hover{background:var(--char2)}
+    #fcevo .ec.dis{opacity:.24;cursor:not-allowed}
+    #fcevo .ec.owned{opacity:.5}
+    #fcevo .noglyph i{display:none}
+    #fcevo .ec .ico{position:relative;width:40px;height:40px;margin:0 auto 5px;display:flex;align-items:center;justify-content:center}
+    #fcevo .ec .ico i{font-family:'UltimateTeam-Icons',sans-serif;font-style:normal;font-weight:400;font-size:19px;line-height:1}
+    #fcevo .ec .ico.noglyph::after{content:attr(data-ini);font:800 11px var(--grot)}
+    /* diamond (PlayStyle) */
+    #fcevo .ec:not(.psp) .ico{clip-path:polygon(50% 2%,98% 50%,50% 98%,2% 50%);background:linear-gradient(160deg,#767c85,#4c525b)}
+    #fcevo .ec:not(.psp) .ico i,#fcevo .ec:not(.psp) .ico.noglyph::after{color:#eef1f5}
+    #fcevo .ec.owned:not(.psp) .ico{background:linear-gradient(160deg,#3e434b,#2f343b)}
+    #fcevo .ec.owned:not(.psp) .ico i,#fcevo .ec.owned:not(.psp) .ico.noglyph::after{color:#aeb3ba}
+    #fcevo .ec.sel:not(.psp) .ico{background:linear-gradient(160deg,#eef1f5,#c1c7cf);filter:drop-shadow(0 0 6px rgba(232,238,245,.65))}
+    #fcevo .ec.sel:not(.psp) .ico i,#fcevo .ec.sel:not(.psp) .ico.noglyph::after{color:#14171c}
+    /* hexagon (PlayStyle+) */
+    #fcevo .ec.psp .ico{clip-path:polygon(25% 5%,75% 5%,100% 50%,75% 95%,25% 95%,0 50%);background:linear-gradient(160deg,#6a5622,#403314)}
+    #fcevo .ec.psp .ico i,#fcevo .ec.psp .ico.noglyph::after{color:#e9cd86}
+    #fcevo .ec.psp.owned .ico{background:linear-gradient(160deg,#4a4326,#332d18)}
+    #fcevo .ec.psp.owned .ico i,#fcevo .ec.psp.owned .ico.noglyph::after{color:#9a8a5e}
+    #fcevo .ec.psp.sel .ico{background:linear-gradient(160deg,#f6d879,#c9942f);filter:drop-shadow(0 0 6px rgba(246,216,121,.8))}
+    #fcevo .ec.psp.sel .ico i,#fcevo .ec.psp.sel .ico.noglyph::after{color:#2a1c00}
+    #fcevo .ec .nm{font-size:9px;line-height:1.12;color:var(--ash);max-height:22px;overflow:hidden}
+    #fcevo .ec.owned .nm{color:var(--ash)}
+    #fcevo .ec.sel:not(.psp) .nm{color:#eef1f5}#fcevo .ec.psp.sel .nm{color:#f2cf6f}
+    /* owned marker: a small recessed check badge */
+    #fcevo .ec .own{position:absolute;top:1px;right:4px;width:13px;height:13px;background:var(--ink);border:1px solid var(--line2);
+      display:flex;align-items:center;justify-content:center;font:9px/1 var(--grot);color:var(--ash)}
+    #fcevo .ec .own::after{content:"\\2713"}
+    /* preview: player's current playstyles — same clip-path shapes, matched size */
+    #fcevo .psrow{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+    #fcevo .psrow .chip{width:26px;height:26px;display:flex;align-items:center;justify-content:center;
+      clip-path:polygon(50% 2%,98% 50%,50% 98%,2% 50%);background:linear-gradient(160deg,#eef1f5,#c1c7cf);color:#14171c}
+    #fcevo .psrow .chip i{font-family:'UltimateTeam-Icons',sans-serif;font-style:normal;font-weight:400;font-size:12px;line-height:1}
+    #fcevo .psrow .chip.noglyph::after{content:attr(data-ini);font:800 9px var(--grot);color:#14171c}
+    #fcevo .psrow .chip.ic{clip-path:polygon(25% 5%,75% 5%,100% 50%,75% 95%,25% 95%,0 50%);background:linear-gradient(160deg,var(--gold1),var(--gold2));color:#2a1c00}
+    #fcevo .psrow .chip.ic.noglyph::after{color:#2a1c00}
+    #fcevo .opts{display:flex;gap:14px;align-items:center;flex-wrap:wrap;font:10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--ash)}
+    #fcevo .opts input[type=number]{font-family:var(--mono)}
+    #fcevo .go{background:var(--acc);color:var(--acc-ink);border:0;border-radius:0;padding:12px;cursor:pointer;
+      font:800 11px/1 var(--grot);text-transform:uppercase;letter-spacing:.16em}
+    #fcevo .go:hover{filter:brightness(1.06)}
+    #fcevo .go:disabled{opacity:.4}#fcevo .stop{background:var(--bad);color:#160b09}
+    #fcevo .mini{background:transparent;color:var(--ash);border:1px solid var(--line2);border-radius:0;padding:6px 9px;cursor:pointer;
+      font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;white-space:nowrap}
+    #fcevo .mini:hover{color:var(--bone);border-color:var(--ash)}
+    #fcevo .status{font:11px/1.4 var(--mono);color:var(--ash);padding:2px 0 0;min-height:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    #fcevo .status.ok{color:var(--good)}#fcevo .status.err{color:var(--bad)}#fcevo .status.warn{color:var(--warn)}#fcevo .status.head{color:var(--acc)}#fcevo .status.dim{color:var(--ash)}
+    #fcevo .statusbar{display:flex;align-items:center;gap:8px}#fcevo .statusbar .status{flex:1}
+    #fcevo .logtoggle{background:transparent;color:var(--ash);border:1px solid var(--line2);border-radius:0;padding:3px 8px;cursor:pointer;font:600 9px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;white-space:nowrap}
+    #fcevo .logtoggle:hover{color:var(--bone)}
+    #fcevo .logwrap{display:none;background:var(--char);border:1px solid var(--line);margin-top:6px}
+    #fcevo .logwrap.open{display:block}
+    #fcevo .logpane{max-height:120px;overflow:auto;padding:7px 9px;font:11px/1.5 var(--mono)}
+    #fcevo .logpane .ln{white-space:pre-wrap;word-break:break-word}
+    #fcevo .logpane .ln.ok{color:var(--good)}#fcevo .logpane .ln.err{color:var(--bad)}#fcevo .logpane .ln.warn{color:var(--warn)}#fcevo .logpane .ln.head{color:var(--acc)}#fcevo .logpane .ln.dim{color:var(--ash)}
+    #fcevo .count{color:var(--bone);font-weight:700;font-variant-numeric:tabular-nums}#fcevo .count.over{color:var(--bad)}#fcevo .muted{color:var(--ash)}
+    #fcevo .clubstat{margin-top:8px;padding:7px 9px;font:10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.08em;background:var(--char);border:1px solid var(--line);border-left:2px solid var(--line2);cursor:pointer}
+    #fcevo .clubstat.load{color:var(--warn);border-left-color:var(--warn)}#fcevo .clubstat.ok{color:var(--good);border-left-color:var(--good)}#fcevo .clubstat.err{color:var(--bad);border-left-color:var(--bad)}
+    #fcevo .autosync{display:flex;align-items:center;gap:8px;margin-top:9px;font:10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--ash);cursor:pointer}
+    #fcevo .autosync input{margin:0;accent-color:var(--acc)}
+    /* accent diamond = a Suggest pick; owned = small good-dot; help badge */
+    #fcevo .sug{display:inline-block;width:6px;height:6px;background:var(--acc);transform:rotate(45deg);margin:0 3px 0 6px;vertical-align:middle}
+    #fcevo .tag-own{font:8px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--ash);border:1px solid var(--line2);padding:1px 4px;margin-left:7px;vertical-align:middle}
+    #fcevo .ec .own{position:absolute;top:2px;right:5px;width:5px;height:5px;background:var(--good);transform:rotate(45deg)}
+    #fcevo .metarank h4 .help{margin-left:auto;align-self:center;display:inline-flex;align-items:center;justify-content:center;
+      width:15px;height:15px;border:1px solid var(--line2);color:var(--ash);font:700 9px/1 var(--mono);cursor:help}
+    #fcevo .metarank h4 .help:hover{color:var(--acc);border-color:var(--acc)}
+    /* tooltip (attached to body so the panel's overflow can't clip it) */
+    #fcevo-tip{position:fixed;z-index:2147483647;max-width:232px;background:#0b0f14;border:1px solid #394653;
+      padding:9px 11px;pointer-events:none;box-shadow:0 16px 38px -14px #000;font:11px/1.45 -apple-system,"Helvetica Neue",Arial,sans-serif;color:#c4ccd4}
+    #fcevo-tip b{display:block;font:700 10px/1.2 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.1em;text-transform:uppercase;color:#33d6c1;margin-bottom:5px}
+    #fcevo-tip span{display:block}
     `;
     document.head.appendChild(s);
   }
@@ -415,23 +745,23 @@
     const root = document.createElement("div");
     root.id = "fcevo";
     root.innerHTML = `
-      <header><b>🧬 PlayStyle Evo Helper</b><span class="sp"></span><button data-act="min">–</button></header>
+      <header><b class="wm">Evo&nbsp;Helper</b><i class="dia" aria-hidden="true"></i><span class="sp"></span><button data-act="min" title="Collapse"><svg class="chev" viewBox="0 0 14 9" width="12" height="8" aria-hidden="true"><path d="M1 6.5L7 1.5L13 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></header>
       <div class="body">
         <div class="sec">
-          <h4>1 · Pick player from club</h4>
-          <div class="row">
+          <h4><span class="ix">01</span> Select from club</h4>
+          <div class="row srow">
             <input type="text" id="fcevo-search" placeholder="search club by name…">
-            <button class="mini" data-act="rar" id="fcevo-rarbtn">Rarity: all ▾</button>
+            <button class="mini rarbtn" data-act="rar" id="fcevo-rarbtn">Rarity: all ▾</button>
           </div>
           <div class="rarpanel" id="fcevo-rarpanel"></div>
           <div class="clubstat" id="fcevo-clubstat" data-act="reloadclub" title="Click to reload the club">Club: waiting for app…</div>
-          <div class="results" id="fcevo-results"></div>
+          <label class="autosync" title="When on, the tool auto-selects whichever player you open in the EA web app (matched by their stats)."><input type="checkbox" id="fcevo-autosync"> auto-sync to the player you open in EA</label>
         </div>
 
         <div class="sec" id="fcevo-preview" style="display:none"></div>
 
         <div class="sec">
-          <h4>2 · Choose evolutions</h4>
+          <h4><span class="ix">02</span> Choose evolutions</h4>
           <div class="tabs">
             <button data-tab="PS+">PlayStyle+ (36)</button>
             <button data-tab="PS">PlayStyle (36)</button>
@@ -439,7 +769,7 @@
           <div class="row" style="margin-top:7px">
             <select id="fcevo-pos" style="flex:1"></select>
             <select id="fcevo-role" style="flex:1.3"></select>
-            <button class="mini" data-act="suggest" title="Preselect this role's playstyles (top 3 as PS+). You can then tweak.">✨ Suggest</button>
+            <button class="mini" data-act="suggest" data-tip="Suggest|Preselects this role's recommended playstyles — the top 3 as PlayStyle+, the rest as basic — skipping any the player already owns and respecting the caps. Tweak freely afterward.">Suggest</button>
           </div>
           <div class="row" style="margin:7px 0">
             <input type="text" id="fcevo-filter" placeholder="filter evolutions…">
@@ -447,6 +777,8 @@
           </div>
           <div class="grid" id="fcevo-grid"></div>
         </div>
+
+        <div class="sec metarank" id="fcevo-metarank" style="display:none"></div>
 
         <div class="opts">
           <label title="Add the player to each slot, then claim/finish it so the PlayStyle is locked in."><input type="checkbox" id="fcevo-claim" checked> claim &amp; finish</label>
@@ -457,25 +789,84 @@
           <button class="go" data-act="run" style="flex:1">Apply selected</button>
           <button class="go stop" data-act="stop" style="display:none;flex:1">Stop</button>
         </div>
-        <div class="status" id="fcevo-status">Ready.</div>
+        <div class="statusbar">
+          <div class="status" id="fcevo-status">Ready.</div>
+          <button class="logtoggle" data-act="logtoggle" title="Show/hide the full run log">Log ▾</button>
+        </div>
+        <div class="logwrap" id="fcevo-logwrap"><div class="logpane" id="fcevo-logpane"></div></div>
       </div>`;
     document.body.appendChild(root);
     els = {
-      root, search: q("#fcevo-search"), results: q("#fcevo-results"), preview: q("#fcevo-preview"), grid: q("#fcevo-grid"),
+      root, search: q("#fcevo-search"), preview: q("#fcevo-preview"), grid: q("#fcevo-grid"),
       count: q("#fcevo-count"), status: q("#fcevo-status"), run: q('[data-act="run"]'), stop: q('[data-act="stop"]'),
-      claim: q("#fcevo-claim"), delay: q("#fcevo-delay"),
+      claim: q("#fcevo-claim"), delay: q("#fcevo-delay"), logwrap: q("#fcevo-logwrap"), logpane: q("#fcevo-logpane"),
       rarbtn: q("#fcevo-rarbtn"), rarpanel: q("#fcevo-rarpanel"), clubstat: q("#fcevo-clubstat"),
-      pos: q("#fcevo-pos"), role: q("#fcevo-role"),
+      pos: q("#fcevo-pos"), role: q("#fcevo-role"), metarank: q("#fcevo-metarank"), autosync: q("#fcevo-autosync"),
     };
     function q(s) { return root.querySelector(s); }
 
+    // The club-search results live in a floating dropdown (combobox) anchored under
+    // the search field, so they overlay rather than pushing the panel around.
+    els.combo = document.createElement("div");
+    els.combo.className = "combo";
+    root.appendChild(els.combo);
+
     root.addEventListener("click", onClick);
-    q("#fcevo-search").addEventListener("input", (e) => { searchQ = e.target.value.trim().toLowerCase(); renderResults(); });
+    let searchTimer = null;
+    q("#fcevo-search").addEventListener("input", (e) => {
+      const v = e.target.value.trim().toLowerCase();
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => { searchQ = v; comboOpen = true; comboHl = 0; renderResults(); }, 150);
+    });
+    // Open on focus; a prior pick leaves the player's name in the box, so select it
+    // so typing immediately searches for a different player instead of appending.
+    q("#fcevo-search").addEventListener("focus", (e) => { if (state.item) e.target.select(); openCombo(); });
+    q("#fcevo-search").addEventListener("blur", () => setTimeout(closeCombo, 130));
     q("#fcevo-filter").addEventListener("input", (e) => { filter = e.target.value.toLowerCase(); renderGrid(); });
     els.pos.addEventListener("change", populateRoles);
+    els.role.addEventListener("change", renderMetaRank);
+    // Re-check glyphs once the EA icon font finishes loading (avoids a flash of
+    // initials on first paint before the font is ready).
+    try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(markGlyphs); } catch (_) {}
     populatePositions();
     makeDraggable(root, root.querySelector("header"));
+    initTips();
     setTab("PS+");
+
+    // Restore persisted preferences (delay, claim, panel position, min/log state).
+    if (Number.isFinite(prefs.delay)) els.delay.value = prefs.delay;
+    if (typeof prefs.claim === "boolean") els.claim.checked = prefs.claim;
+    if (prefs.pos && prefs.pos.left) { root.style.right = "auto"; root.style.left = prefs.pos.left; root.style.top = prefs.pos.top; }
+    if (prefs.min) root.classList.add("min");
+    if (prefs.logOpen) { els.logwrap.classList.add("open"); const lt = root.querySelector('[data-act="logtoggle"]'); if (lt) lt.textContent = "Log ▴"; }
+    els.delay.addEventListener("change", () => savePrefs({ delay: +els.delay.value }));
+    els.claim.addEventListener("change", () => savePrefs({ claim: els.claim.checked }));
+    if (prefs.autoSync) els.autosync.checked = true;
+    els.autosync.addEventListener("change", () => setAutoSync(els.autosync.checked));
+    if (prefs.autoSync) setAutoSync(true);
+
+    // Keyboard on the search field drives the dropdown: ↓/↑ move the highlight,
+    // Enter picks it, Esc closes. Globally, Ctrl/⌘+Enter applies and Esc stops a run.
+    els.search.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowDown") { e.preventDefault(); comboOpen ? moveHl(1) : openCombo(); }
+      else if (e.key === "ArrowUp") { if (comboOpen) { e.preventDefault(); moveHl(-1); } }
+      else if (e.key === "Enter") {
+        if (comboOpen) { e.preventDefault(); const r = els.combo.querySelectorAll(".pr")[comboHl]; if (r && r._it) selectPlayer(r._it); }
+      } else if (e.key === "Escape") { if (comboOpen) { e.preventDefault(); e.stopPropagation(); closeCombo(); } }
+    });
+    // The dropdown is anchored to the field, so close it if the panel scrolls or resizes.
+    root.querySelector(".body").addEventListener("scroll", () => { closeCombo(); closeRar(); }, { passive: true });
+    window.addEventListener("resize", () => { closeCombo(); closeRar(); });
+    // Close the rarity dropdown when clicking outside it (but not on its own button).
+    document.addEventListener("mousedown", (e) => {
+      if (els.rarpanel.classList.contains("open") && !els.rarpanel.contains(e.target) && !els.rarbtn.contains(e.target)) closeRar();
+    });
+    root.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        if (!state.running) runBatch([...state.selected], { delayMs: +els.delay.value, claim: els.claim.checked });
+      } else if (e.key === "Escape" && state.running) { state.abort = true; }
+    });
     // Default the club-search filter to the evos' eligible rarities.
     if (ELIGIBLE_RARITIES && ELIGIBLE_RARITIES.length) {
       ELIGIBLE_RARITIES.forEach((id) => state.rarities.add(id));
@@ -489,7 +880,8 @@
     const act = e.target.getAttribute("data-act");
     const t = e.target.getAttribute("data-tab");
     if (t) return setTab(t);
-    if (act === "min") return els.root.classList.toggle("min");
+    if (act === "min") { const m = els.root.classList.toggle("min"); e.target.closest("button").title = m ? "Expand" : "Collapse"; savePrefs({ min: m }); return; }
+    if (act === "logtoggle") { const o = els.logwrap.classList.toggle("open"); e.target.textContent = o ? "Log ▴" : "Log ▾"; savePrefs({ logOpen: o }); return; }
     if (act === "reloadclub") return startClubLoad(1, true);
     if (act === "rar") return toggleRarPanel();
     if (act === "suggest") return suggest();
@@ -502,9 +894,24 @@
   function setTab(t) { tab = t; els.root.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.getAttribute("data-tab") === t)); renderGrid(); }
 
   // ---- rarity multi-select ----
+  // Anchor the rarity dropdown under its button (right-aligned, since the button
+  // sits at the right of the row), clamped to the viewport.
+  function positionRar() {
+    const r = els.rarbtn.getBoundingClientRect(), p = els.rarpanel, w = 244;
+    let left = r.right - w;
+    if (left < 8) left = 8;
+    p.style.left = Math.round(left) + "px";
+    p.style.top = Math.round(r.bottom + 3) + "px";
+    p.style.width = w + "px";
+  }
+  function closeRar() { els.rarpanel.classList.remove("open"); }
   function toggleRarPanel() {
     const open = els.rarpanel.classList.toggle("open");
-    if (open && !els.rarpanel.dataset.built) renderRarPanel();
+    if (!open) return;
+    if (!els.rarpanel.dataset.built) renderRarPanel(); else renderRarList();
+    positionRar();
+    const s = els.rarpanel.querySelector(".rarsearch");
+    if (s) s.focus();
   }
   // All rarities (full map ∪ club ids), with club counts, sorted by name.
   function allRaritiesList() {
@@ -515,18 +922,32 @@
       .sort((a, b) => a.name.localeCompare(b.name));
   }
   function renderRarPanel() {
-    const rs = allRaritiesList();
     els.rarpanel.dataset.built = "1";
     els.rarpanel.innerHTML =
-      `<label style="font-weight:700"><input type="checkbox" id="fcevo-rarall" ${state.rarities.size ? "" : "checked"}> all rarities</label>` +
-      rs.map((r) => `<label><input type="checkbox" data-rf="${r.rf}" ${state.rarities.has(r.rf) ? "checked" : ""}> ${esc(r.name)}<span class="rc">${r.count ? "×" + r.count : ""}</span></label>`).join("");
-    els.rarpanel.querySelectorAll("input").forEach((cb) => cb.addEventListener("change", onRarChange));
+      `<div class="rarhead">` +
+        `<input type="text" class="rarsearch" placeholder="filter rarities…">` +
+        `<label class="allrar"><input type="checkbox" id="fcevo-rarall" ${state.rarities.size ? "" : "checked"}> all rarities</label>` +
+      `</div><div class="rarlist"></div>`;
+    const s = els.rarpanel.querySelector(".rarsearch");
+    s.value = rarQ;
+    s.addEventListener("input", (e) => { rarQ = e.target.value.trim().toLowerCase(); renderRarList(); });
+    s.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); closeRar(); } });
+    els.rarpanel.querySelector("#fcevo-rarall").addEventListener("change", onRarChange);
+    renderRarList();
+  }
+  function renderRarList() {
+    const box = els.rarpanel.querySelector(".rarlist");
+    const rs = allRaritiesList().filter((r) => !rarQ || r.name.toLowerCase().includes(rarQ));
+    box.innerHTML = rs.length
+      ? rs.map((r) => `<label><input type="checkbox" data-rf="${r.rf}" ${state.rarities.has(r.rf) ? "checked" : ""}> ${esc(r.name)}<span class="rc">${r.count ? "×" + r.count : ""}</span></label>`).join("")
+      : `<div class="rhint">No rarity matches &ldquo;${esc(rarQ)}&rdquo;</div>`;
+    box.querySelectorAll("input").forEach((cb) => cb.addEventListener("change", onRarChange));
   }
   function onRarChange(e) {
     const cb = e.target;
     if (cb.id === "fcevo-rarall") {
       if (cb.checked) state.rarities.clear();
-      renderRarPanel();
+      renderRarList();
     } else {
       const rf = Number(cb.dataset.rf);
       cb.checked ? state.rarities.add(rf) : state.rarities.delete(rf);
@@ -538,10 +959,14 @@
   }
 
   // ---- player results ----
-  const RESULT_CAP = 100;
-  function playerRow(it) {
+  function playerRow(it, idx) {
     const row = document.createElement("div");
     row.className = "pr";
+    row._it = it;
+    // mousedown (not click) with preventDefault keeps focus on the field so the
+    // dropdown's blur-close can't race the pick.
+    row.addEventListener("mousedown", (e) => { e.preventDefault(); selectPlayer(it); });
+    row.addEventListener("mouseenter", () => { comboHl = idx; highlightRows(); });
     const gk = (() => { try { return it.isGK(); } catch (_) { return false; } })();
     const np = numPlus(it), nb = numBasic(it);
     let counts = "";
@@ -554,20 +979,211 @@
     }
     row.innerHTML = `<span class="ov">${it.rating ?? "?"}</span><span class="nm">${esc(playerName(it))}</span>
       ${gk ? '<span class="gk">GK</span>' : ""}${counts}`;
-    row.addEventListener("click", () => selectPlayer(it));
     return row;
   }
+  // --- club-search combobox --------------------------------------------------
+  const EMPTY_SHOW = 8, SEARCH_CAP = 12;
+  function positionCombo() {
+    const r = els.search.getBoundingClientRect(), c = els.combo;
+    c.style.left = Math.round(r.left) + "px";
+    c.style.top = Math.round(r.bottom + 3) + "px";
+    c.style.width = Math.round(r.width) + "px";
+  }
+  function highlightRows() {
+    const rows = els.combo.querySelectorAll(".pr");
+    rows.forEach((r, i) => r.classList.toggle("hl", i === comboHl));
+    const cur = rows[comboHl];
+    if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: "nearest" });
+  }
+  function moveHl(d) {
+    const n = els.combo.querySelectorAll(".pr").length;
+    if (n) { comboHl = (comboHl + d + n) % n; highlightRows(); }
+  }
+  function openCombo() { comboOpen = true; renderResults(); }
+  function closeCombo() { comboOpen = false; if (els.combo) els.combo.style.display = "none"; }
+  // Populate + position the dropdown. No-op (hidden) unless it's open.
   function renderResults() {
-    const box = els.results; box.innerHTML = "";
+    const box = els.combo;
+    if (!box) return;
+    if (!comboOpen) { box.style.display = "none"; return; }
+    box.innerHTML = "";
     const all = clubPlayers().filter(rarityAllowed);
-    const matches = (searchQ ? all.filter((it) => playerName(it).toLowerCase().includes(searchQ)) : all)
+    if (!all.length) { box.innerHTML = `<div class="rhint">Club still loading&hellip;</div>`; positionCombo(); box.style.display = "block"; return; }
+    const q = searchQ;
+    const matches = (q ? all.filter((it) => playerName(it).toLowerCase().includes(q)) : all)
       .sort((a, b) => (b.rating || 0) - (a.rating || 0));
-    if (!matches.length) {
-      box.innerHTML = `<div class="muted" style="padding:4px">${all.length ? "No matches." : "Club still loading…"}</div>`;
-      return;
+    if (q && !matches.length) { box.innerHTML = `<div class="rhint">No player matches &ldquo;${esc(q)}&rdquo;</div>`; positionCombo(); box.style.display = "block"; return; }
+    const cap = q ? SEARCH_CAP : EMPTY_SHOW;
+    const list = matches.slice(0, cap);
+    list.forEach((it, i) => box.appendChild(playerRow(it, i)));
+    const extra = matches.length - cap;
+    const hint = q
+      ? (extra > 0 ? `+${extra} more &mdash; keep typing` : `${matches.length} match${matches.length > 1 ? "es" : ""}`)
+      : `${all.length} players &middot; type a name to filter`;
+    box.insertAdjacentHTML("beforeend", `<div class="rhint">${hint}</div>`);
+    comboHl = Math.max(0, Math.min(comboHl, list.length - 1));
+    highlightRows();
+    positionCombo();
+    box.style.display = "block";
+  }
+
+  // --- Auto-sync: follow the player opened in the EA detail view ------------
+  // The app has no reliable public accessor for the "currently shown" item, so we
+  // read the six face stats from the detail header (PAC/SHO/PAS/DRI/DEF/PHY) and
+  // match them against the loaded club — a 6-value match is effectively unique and
+  // doesn't depend on obfuscated internals.
+  const FACE_LABELS = ["PAC", "SHO", "PAS", "DRI", "DEF", "PHY"];
+  // Text unique to an open player-detail panel — the "Player Bio" tabs OR the
+  // "Player Details" action menu. Used to tell the detail card apart from the many
+  // squad/list cards that also show PAC/SHO/… numbers.
+  const DETAIL_MARKERS = ["Attributes", "PlayStyles", "Roles", "Player Bio",
+    "Apply Consumable", "Swap Player", "Send to My Club", "Compare Price",
+    "Search on Transfer Market", "Remove Evolution Upgrades", "Player Details"];
+  function nearNumber(el) {
+    for (const n of [el.nextElementSibling, el.previousElementSibling, el.parentElement && el.parentElement.nextElementSibling]) {
+      if (!n) continue;
+      const m = (n.textContent || "").trim().match(/^\d{1,3}$/);
+      if (m) return +m[0];
     }
-    matches.slice(0, RESULT_CAP).forEach((it) => box.appendChild(playerRow(it)));
-    if (matches.length > RESULT_CAP) box.insertAdjacentHTML("beforeend", `<div class="muted" style="padding:4px">+${matches.length - RESULT_CAP} more — type to filter</div>`);
+    const pm = ((el.parentElement && el.parentElement.textContent) || "").match(/\b(\d{2,3})\b/);
+    return pm ? +pm[1] : null;
+  }
+  // Pair the six face labels with their adjacent numbers within one container.
+  function scrapeWithin(root) {
+    const found = {};
+    for (const el of root.querySelectorAll("*")) {
+      if (el.children.length) continue;
+      const t = (el.textContent || "").trim();
+      if (FACE_LABELS.indexOf(t) < 0 || found[t] != null) continue;
+      const n = nearNumber(el);
+      if (n != null) found[t] = n;
+    }
+    return FACE_LABELS.every((l) => found[l] != null) ? FACE_LABELS.map((l) => found[l]) : null;
+  }
+  function faceBlockCount(root) {
+    let c = 0;
+    for (const el of root.querySelectorAll("*")) {
+      if (!el.children.length && (el.textContent || "").trim() === "PAC" && nearNumber(el) != null) c++;
+    }
+    return c;
+  }
+  // Read the OPEN player's face stats. The detail-only markers cluster inside the
+  // open panel, so their tightest common ancestor IS that panel; from there we
+  // climb until it wraps exactly one face-stat block (the card) and read it. Squad
+  // and list cards lack the markers, so they're ignored; if the scope isn't a clean
+  // single card, we return null rather than guess.
+  function scrapeFaceStats() {
+    const markers = [];
+    for (const el of document.querySelectorAll("*")) {
+      if (el.children.length || (els.root && els.root.contains(el))) continue;
+      if (DETAIL_MARKERS.indexOf((el.textContent || "").trim()) >= 0) markers.push(el);
+    }
+    if (markers.length < 2) return null;
+    let anc = markers[0];
+    for (const m of markers.slice(1)) { while (anc && !anc.contains(m)) anc = anc.parentElement; }
+    for (let i = 0; i < 8 && anc; i++, anc = anc.parentElement) {
+      const c = faceBlockCount(anc);
+      if (c === 1) return scrapeWithin(anc);
+      if (c > 1) return null; // scope spans multiple cards -> don't guess
+    }
+    return null;
+  }
+  // Preferred detector: read the live UTItemEntity straight off the presented
+  // view controller. getAppMain().getRootViewController() roots a tree of EA
+  // view controllers; the open player-detail panel (e.g. UTSlotActionPanel-
+  // ViewController) holds the opened card on `.item`. This is exact and
+  // identity-stable (real definitionId/id), unlike DOM face-stat scraping.
+  // Returns the entity, or null if the app globals aren't reachable or no
+  // presented controller currently holds a player item.
+  function openEntity() {
+    if (typeof window.getAppMain !== "function") return null;
+    let root; try { root = window.getAppMain().getRootViewController(); } catch (_) { return null; }
+    if (!root || typeof root !== "object") return null;
+    const seen = new Set(), stack = [root], hits = [];
+    const isItem = (v) => v && typeof v.isPlayer === "function" && typeof v.getAttributes === "function";
+    for (let i = 0; i < 500 && stack.length; i++) {
+      const vc = stack.shift();
+      if (!vc || typeof vc !== "object" || seen.has(vc)) continue;
+      seen.add(vc);
+      let kids = [];
+      try {
+        kids = [].concat(vc.childViewControllers || [])
+          .concat(vc.currentController || [])
+          .concat((vc.presentationController && vc.presentationController.presentedViewController) || [])
+          .concat((vc.getPresentedViewController && vc.getPresentedViewController()) || []);
+      } catch (_) {}
+      for (const k of kids) if (k && !seen.has(k)) stack.push(k);
+      let keys = []; try { keys = Object.keys(vc); } catch (_) {}
+      for (const key of keys) {
+        let v; try { v = vc[key]; } catch (_) { continue; }
+        if (isItem(v)) { hits.push(v); break; }
+      }
+    }
+    // Breadth-first visits shallow controllers first; the frontmost panel is the
+    // deepest presented, so the last hit is the card on top.
+    return hits.length ? hits[hits.length - 1] : null;
+  }
+  function entityAttrs(ent) { try { return ent.getAttributes(); } catch (_) { return null; } }
+  function detectOpenPlayer() {
+    const club = clubPlayers();
+    if (!club.length) return null;
+    // Primary: the live entity off the presented view controller (exact match).
+    const ent = openEntity();
+    if (ent) {
+      const byId = club.find((it) => it.id === ent.id);
+      if (byId) return byId;
+      const byDef = ent.definitionId != null && club.find((it) => it.definitionId === ent.definitionId);
+      if (byDef) return byDef;
+      // Have the entity but no id/def hit — bridge via its own attribute tuple.
+      const ea = entityAttrs(ent);
+      if (ea && ea.length >= 6) {
+        return club.find((it) => {
+          let a = null; try { a = it.getAttributes(); } catch (_) {}
+          return a && a.length >= 6 && ea.every((v, i) => +a[i] === +v);
+        }) || null;
+      }
+      return null; // open card isn't a club player -> don't sync
+    }
+    // Fallback: DOM face-stat scraping (works even if the app globals move).
+    const faces = scrapeFaceStats();
+    if (!faces) return null;
+    return club.find((it) => {
+      let a = null; try { a = it.getAttributes(); } catch (_) {}
+      return a && a.length >= 6 && faces.every((v, i) => +a[i] === v);
+    }) || null;
+  }
+  // Console diagnostic to help calibrate the detector against the real app.
+  function findOpenPlayer() {
+    const ent = openEntity();
+    const m = detectOpenPlayer();
+    const info = {
+      path: ent ? "entity" : "dom",
+      entity: ent ? { defId: ent.definitionId, id: ent.id,
+        name: (ent.getStaticData && ent.getStaticData().name) } : null,
+      scrapedFaceStats: ent ? null : scrapeFaceStats(),
+      match: m ? playerName(m) + " (" + m.rating + ")" : null,
+      clubLoaded: clubPlayers().length,
+    };
+    console.log("[FCEvo] findOpenPlayer:", info);
+    return info;
+  }
+  let autoSyncIV = null, autoSyncLast = null;
+  function autoSyncTick() {
+    if (!state.autoSync || state.running) return;
+    const it = detectOpenPlayer();
+    if (it && it.id !== (state.item && state.item.id)) {
+      if (it.id === autoSyncLast && state.item && state.item.id === it.id) return;
+      autoSyncLast = it.id;
+      selectPlayer(it);
+      log("⟳ Auto-synced to " + playerName(it), "head");
+    }
+  }
+  function setAutoSync(on) {
+    state.autoSync = on;
+    savePrefs({ autoSync: on });
+    if (on && !autoSyncIV) autoSyncIV = setInterval(autoSyncTick, 700);
+    if (!on && autoSyncIV) { clearInterval(autoSyncIV); autoSyncIV = null; }
+    if (on) autoSyncTick();
   }
 
   function selectPlayer(it) {
@@ -577,9 +1193,9 @@
     // in focus; reflect the pick in the search box.
     searchQ = "";
     if (els.search) els.search.value = playerName(it);
-    if (els.results) els.results.innerHTML = "";
+    closeCombo();
     populatePositions(); // now restricted to this player's positions, preferred first
-    renderPreview(); renderGrid(); updateCount();
+    renderPreview(); renderGrid(); updateCount(); renderMetaRank();
     if (els.preview && els.preview.scrollIntoView) els.preview.scrollIntoView({ block: "nearest" });
     const pos = playerPositionGroups(it).join(", ") || "?";
     log("🎯 Selected " + playerName(it) + " (" + it.rating + ") · " + pos + " · " + it.id, "head");
@@ -621,9 +1237,63 @@
       added++;
     });
     setTab(idxTab());
-    renderGrid(); updateCount();
+    renderGrid(); updateCount(); renderMetaRank();
     log(`✨ ${pos} · ${role}: preselected ${added}${owned ? `, ${owned} already owned` : ""}${skip.length ? `, skipped ${skip.length}` : ""}. Tweak freely, then Apply.`, "head");
     if (skip.length) log("   skipped: " + skip.join(", "), "dim");
+  }
+
+  // Build the ranked list for the selected player + role, sorted by stat score.
+  function metaRankData() {
+    if (!state.item) return null;
+    const pos = els.pos.value, role = els.role.value;
+    if (!pos || !role || !(ROLES[pos] && ROLES[pos][role])) return null;
+    const it = state.item, gk = isGKItem(it), attrs = readAttrs(it), list = ROLES[pos][role];
+    const rows = list.map((name, idx) => {
+      const evoBase = psByName[name], evoPlus = pspByName[name];
+      const gkOnly = (evoBase && evoBase.g) || (evoPlus && evoPlus.g);
+      return Object.assign({ name, idx, owned: !!(evoBase && hasEvo(it, evoBase)), disabled: !!gkOnly && !gk },
+        scoreEvo(it, name, idx, list.length, attrs));
+    }).sort((a, b) => b.score - a.score);
+    return { rows, coverage: attrs._coverage, suggested: new Set(list.slice(0, 3)) };
+  }
+  function renderMetaRank() {
+    const box = els.metarank; if (!box) return;
+    const data = metaRankData();
+    if (!data) { box.style.display = "none"; return; }
+    box.style.display = "";
+    const note = data.coverage === 0
+      ? `No attributes readable on this card — ranking by role consensus only. Run <code>FCEvo.dumpEntity()</code> in the console and share the output to map fields.`
+      : `coverage ${Math.round(data.coverage * 100)}% · <i class="sug"></i> = Suggest's PS+ picks`;
+    const rows = data.rows.map((r) => {
+      const sug = data.suggested.has(r.name) ? `<i class="sug"></i>` : "";
+      const own = r.owned ? `<span class="tag-own">owned</span>` : "";
+      return `<div class="mrow ${r.disabled || r.owned ? "dim" : ""}" data-tip="${esc(dispName(r.name))} · ${r.score}|${esc(psDesc(r.name))}">
+        <span class="mn">${esc(dispName(r.name))}${sug}${own}</span>
+        <span class="mbar"><i style="width:${r.score}%"></i></span>
+        <span class="msc">${r.score}</span>
+        <span class="mwhy">${esc(r.why)}</span></div>`;
+    }).join("");
+    // Name the card the ranking is for, so a stale panel from a previously
+    // selected player can't be mistaken for the current one.
+    const who = `<span class="who">${esc(playerName(state.item))} (${state.item.rating ?? "?"})</span>`;
+    const help = `<span class="help" data-tip="Stat rank|Ranks this role's playstyles by how well ${esc(playerName(state.item))}'s own sub-attributes support each one, blended evenly with fut.gg's role order. The bar is the 0&ndash;100 score; the caption is the top attribute driving it. Advisory only — it never changes what Apply does.">?</span>`;
+    box.innerHTML = `<h4><span class="ix">03</span> Stat rank ${who}${help}</h4><div class="muted" style="padding:2px 0 8px;text-transform:none;font-family:var(--mono);font-size:10px;letter-spacing:.04em">${note}</div><div class="mlist">${rows}</div>`;
+  }
+  // Dump a player entity so the obfuscated attribute field names can be mapped.
+  function dumpEntity() {
+    const it = state.item;
+    if (!it) { log("✋ Select a player first.", "warn"); return null; }
+    const numeric = Object.keys(it).filter((k) => typeof it[k] === "number");
+    const dump = {
+      id: it.id, rating: it.rating, height: it.height, weight: it.weight,
+      numericProps: numeric, ownKeys: Object.keys(it),
+      protoMethods: Object.getOwnPropertyNames(Object.getPrototypeOf(it) || {}),
+      attributeList: it.attributeList, attributeArray: it.attributeArray,
+      coverage: readAttrs(it)._coverage,
+    };
+    console.log("[FCEvo] entity dump — share this to finalize attribute mapping:", dump);
+    log("🔬 Entity dumped to console (attribute coverage " + Math.round(dump.coverage * 100) + "%).", "head");
+    return dump;
   }
   function idxTab() { // show the tab that has the most selected, default PS+
     const selPlus = [...state.selected].filter((s) => byId(s) && byId(s).kind === "PS+").length;
@@ -642,8 +1312,8 @@
       <div class="card">
         <div class="ov">${it.rating ?? "?"}</div>
         <div class="meta">
-          <div class="pn">${esc(playerName(it))} ${gk ? '<span class="gk" style="font-size:10px;color:#9adcff">GK</span>' : ""}</div>
-          <div class="muted">${esc(rarityName(it))} · item ${it.id}</div>
+          <div class="pn">${esc(playerName(it))} ${gk ? '<span class="gk" style="font-size:10px;color:var(--acc)">GK</span>' : ""}</div>
+          <div class="muted">${esc(rarityName(it))}</div>
         </div>
       </div>
       <div class="caps">
@@ -652,28 +1322,58 @@
       </div>
       <div class="psrow">${currentPlayStyles(it).map((p) => {
         const nm = traitName[p.traitId] || ("trait " + p.traitId);
-        return `<div class="chip ${p.isIcon ? "ic" : ""}" title="${esc(nm)}${p.isIcon ? "+" : ""}"><i class="${iconClass(p.isIcon, p.traitId)}"></i></div>`;
+        return `<div class="chip ${p.isIcon ? "ic" : ""}" data-ini="${esc(initials(nm))}" data-tip="${esc(dispName(nm))}${p.isIcon ? " +" : ""}|${esc(psDesc(nm))}"><i class="${iconClass(p.isIcon, p.traitId)}"></i></div>`;
       }).join("") || '<span class="muted">no playstyles</span>'}</div>`;
+    markGlyphs();
   }
 
   // ---- evo grid ----
+  function evoCard(evo, it, gkPlayer) {
+    const owned = it ? hasEvo(it, evo) : false;
+    // GK-exclusive evos (g=1) need a GK; "any player" evos (g=0) are open to all (incl. GKs)
+    const wrongScope = it ? (!!evo.g && !gkPlayer) : false;
+    const dis = wrongScope || owned; // owned -> not selectable (would 460)
+    const sel = state.selected.has(evo.s);
+    const card = document.createElement("div");
+    card.className = "ec" + (evo.kind === "PS+" ? " psp" : "") + (sel ? " sel" : "") + (owned ? " owned" : "") + (dis ? " dis" : "");
+    const nm = dispName(baseName(evo));
+    const tipTitle = nm + (evo.kind === "PS+" ? " +" : "")
+      + (wrongScope ? " · goalkeepers only" : "") + (owned ? " · already owned" : "");
+    card.setAttribute("data-tip", tipTitle + "|" + psDesc(baseName(evo)));
+    card.innerHTML = `<div class="ico" data-ini="${esc(initials(nm))}"><i class="${iconClass(evo.kind === "PS+", evoTrait(evo))}"></i></div>` +
+      `<div class="nm">${esc(nm)}</div>${owned ? '<span class="own" aria-label="owned"></span>' : ""}`;
+    if (!dis) card.addEventListener("click", () => toggleEvo(evo, card));
+    return card;
+  }
   function renderGrid() {
     const box = els.grid; box.innerHTML = "";
     const it = state.item;
     const gkPlayer = it ? (() => { try { return it.isGK(); } catch (_) { return false; } })() : null;
-    current().filter((x) => !filter || x.n.toLowerCase().includes(filter)).forEach((evo) => {
-      const owned = it ? hasEvo(it, evo) : false;
-      // GK-exclusive evos (g=1) need a GK; "any player" evos (g=0) are open to all (incl. GKs)
-      const wrongScope = it ? (!!evo.g && !gkPlayer) : false;
-      const dis = wrongScope || owned; // owned -> not selectable (would 460)
-      const sel = state.selected.has(evo.s);
-      const card = document.createElement("div");
-      card.className = "ec" + (evo.kind === "PS+" ? " psp" : "") + (sel ? " sel" : "") + (owned ? " owned" : "") + (dis ? " dis" : "");
-      card.title = (wrongScope ? "GK-only evo — needs a goalkeeper. " : "") + (owned ? "Player already has this PlayStyle. " : "");
-      card.innerHTML = `<div class="ico"><i class="${iconClass(evo.kind === "PS+", evoTrait(evo))}"></i></div><div class="nm">${esc(evo.n.replace(/\+$/, ""))}</div>
-        <span class="tag">${evo.kind === "PS+" ? "+" : ""}</span>${owned ? '<span class="own">✓</span>' : ""}`;
-      if (!dis) card.addEventListener("click", () => toggleEvo(evo, card));
-      box.appendChild(card);
+    const list = current().filter((x) => !filter || x.n.toLowerCase().includes(filter));
+    // Bucket by EA category, then render each non-empty category in game order.
+    const groups = {};
+    list.forEach((evo) => { const c = CAT_OF[baseName(evo)] || "Other"; (groups[c] || (groups[c] = [])).push(evo); });
+    CAT_ORDER.concat("Other").forEach((cat) => {
+      const evos = groups[cat];
+      if (!evos || !evos.length) return;
+      const sec = document.createElement("div");
+      sec.innerHTML = `<div class="gcat-h">${esc(cat)}</div>`;
+      const row = document.createElement("div"); row.className = "gcat-row";
+      evos.forEach((evo) => row.appendChild(evoCard(evo, it, gkPlayer)));
+      sec.appendChild(row);
+      box.appendChild(sec);
+    });
+    markGlyphs();
+  }
+  // EA's icon font fills the diamonds/hexagons on the live app. If a glyph isn't
+  // rendering (font not yet loaded, or a genuinely blank glyph), fall back to the
+  // playstyle's initials so a shape is never empty. Toggles both ways so it self-
+  // corrects once document.fonts settles.
+  function markGlyphs() {
+    if (!els.root) return;
+    els.root.querySelectorAll(".ec .ico, .psrow .chip").forEach((el) => {
+      const g = el.querySelector("i");
+      el.classList.toggle("noglyph", !g || g.getBoundingClientRect().width < 4);
     });
   }
 
@@ -714,29 +1414,92 @@
   function updateCount() {
     const selPlus = [...state.selected].filter((s) => byId(s) && byId(s).kind === "PS+").length;
     const selB = state.selected.size - selPlus;
-    els.count.textContent = `${state.selected.size} selected (${selPlus} PS+, ${selB} PS)`;
+    let txt = `${state.selected.size} selected (${selPlus} PS+, ${selB} PS)`;
+    let over = false;
+    if (state.item) {
+      // Project where the player lands once the queued batch is applied, so the
+      // caps are visible before hitting Apply.
+      const pp = (numPlus(state.item) ?? 0) + selPlus, pb = (numBasic(state.item) ?? 0) + selB;
+      txt += ` → ${pp}/${CAP_PLUS} PS+, ${pb}/${CAP_BASIC} basic`;
+      over = pp > CAP_PLUS || pb > CAP_BASIC;
+    }
+    els.count.textContent = txt;
+    els.count.classList.toggle("over", over);
   }
 
   function setRunning(on) { els.run.disabled = on; els.stop.style.display = on ? "" : "none"; els.run.style.display = on ? "none" : ""; }
 
-  // Single-line status (latest message only). Full history goes to the console.
+  // Latest message shows in the status line; full history accrues in the log pane
+  // (and the console). The pane keeps the last 200 lines and auto-scrolls unless
+  // the user has scrolled up to read back.
+  // Strip any leading status glyph/emoji — state is conveyed by colour, not icons.
+  const deglyph = (s) => String(s).replace(/^(?:\p{Extended_Pictographic}|[\u2190-\u21FF\u2300-\u27FF\u2900-\u29FF\u2B00-\u2BFF\uFE0F\u200D])+\s*/u, "");
   function log(msg, cls) {
-    if (els.status) { els.status.textContent = msg; els.status.className = "status " + (cls || ""); }
+    const shown = deglyph(msg);
+    if (els.status) { els.status.textContent = shown; els.status.className = "status " + (cls || ""); }
+    if (els.logpane) {
+      const pane = els.logpane;
+      const atBottom = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 24;
+      const ln = document.createElement("div");
+      ln.className = "ln " + (cls || "");
+      ln.textContent = shown;
+      pane.appendChild(ln);
+      while (pane.childElementCount > 200) pane.removeChild(pane.firstChild);
+      if (atBottom) pane.scrollTop = pane.scrollHeight;
+    }
     (cls === "err" ? console.error : cls === "warn" ? console.warn : console.log)("[FCEvo]", msg);
   }
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const initials = (n) => n.replace(/\+$/, "").split(/\s+/).map((w) => w[0]).join("").slice(0, 3).toUpperCase();
 
   function makeDraggable(el, handle) {
-    let sx, sy, ox, oy, drag = false;
+    let sx, sy, ox, oy;
+    // Attach move/up only for the duration of a drag, so we aren't running a
+    // handler on every mouse move across the whole page for the app's lifetime.
+    const onMove = (e) => { el.style.left = ox + e.clientX - sx + "px"; el.style.top = oy + e.clientY - sy + "px"; };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp);
+      savePrefs({ pos: { left: el.style.left, top: el.style.top } });
+    };
     handle.addEventListener("mousedown", (e) => {
       if (e.target.tagName === "BUTTON") return;
-      drag = true; sx = e.clientX; sy = e.clientY;
+      sx = e.clientX; sy = e.clientY;
       const r = el.getBoundingClientRect(); ox = r.left; oy = r.top;
       el.style.right = "auto"; el.style.left = ox + "px"; el.style.top = oy + "px"; e.preventDefault();
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
     });
-    window.addEventListener("mousemove", (e) => { if (drag) { el.style.left = ox + e.clientX - sx + "px"; el.style.top = oy + e.clientY - sy + "px"; } });
-    window.addEventListener("mouseup", () => (drag = false));
+  }
+
+  // Hover tooltips for any [data-tip="Title|Body"] element. The tip lives on
+  // <body> (not inside the panel) so the panel's overflow:hidden can't clip it,
+  // and is placed beside the panel, clamped to the viewport.
+  function initTips() {
+    const tip = document.createElement("div");
+    tip.id = "fcevo-tip"; tip.style.display = "none";
+    document.body.appendChild(tip);
+    let cur = null;
+    const place = (el) => {
+      const er = el.getBoundingClientRect(), pr = els.root.getBoundingClientRect(), tr = tip.getBoundingClientRect(), gap = 8;
+      let left = pr.left - tr.width - gap;
+      if (left < 8) left = Math.min(pr.right + gap, window.innerWidth - tr.width - 8);
+      let top = er.top + er.height / 2 - tr.height / 2;
+      top = Math.max(8, Math.min(top, window.innerHeight - tr.height - 8));
+      tip.style.left = Math.round(left) + "px"; tip.style.top = Math.round(top) + "px";
+    };
+    els.root.addEventListener("mouseover", (e) => {
+      const el = e.target.closest("[data-tip]");
+      if (!el || el === cur) return;
+      cur = el;
+      const p = (el.getAttribute("data-tip") || "").split("|");
+      tip.innerHTML = "<b>" + esc(p[0]) + "</b>" + (p[1] ? "<span>" + p[1] + "</span>" : "");
+      tip.style.display = "block";
+      place(el);
+    });
+    els.root.addEventListener("mouseout", (e) => {
+      const el = e.target.closest("[data-tip]");
+      if (el && (!e.relatedTarget || !el.contains(e.relatedTarget))) { cur = null; tip.style.display = "none"; }
+    });
   }
 
   // --- boot -----------------------------------------------------------------
@@ -747,7 +1510,7 @@
       if (ACAD() && CLUB()) {
         clearInterval(iv);
         if (!document.getElementById("fcevo")) build();
-        window.FCEvo = { applyEvo, claimEvo, runBatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad };
+        window.FCEvo = { applyEvo, claimEvo, runBatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad, readAttrs, scoreEvo, dumpEntity, openEntity, detectOpenPlayer, findOpenPlayer, freshItemById, reloadAndReselect, setAutoSync };
         // Wait until the active squad is loaded (app ready for club searches), then
         // load the club. Hard fallback at 15s so it can't hang; retries cover the rest.
         setClubStatus("Club: waiting for squad…", "load");
