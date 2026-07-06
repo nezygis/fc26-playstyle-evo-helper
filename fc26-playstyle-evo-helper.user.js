@@ -132,7 +132,6 @@
     running: false, abort: false,
     rarities: new Set(), // allowed rareflags for club search; empty = all
     clubItems: null, // players we loaded ourselves (full club / eligible rarities)
-    autoSync: false, // follow the player opened in the EA detail view
   };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const ACAD = () => (window.services && window.services.Academy) || (typeof services !== "undefined" ? services.Academy : null);
@@ -744,8 +743,6 @@
     #fcevo .count{color:var(--bone);font-weight:700;font-variant-numeric:tabular-nums}#fcevo .count.over{color:var(--bad)}#fcevo .muted{color:var(--ash)}
     #fcevo .clubstat{margin-top:8px;padding:7px 9px;font:10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.08em;background:var(--char);border:1px solid var(--line);border-left:2px solid var(--line2);cursor:pointer}
     #fcevo .clubstat.load{color:var(--warn);border-left-color:var(--warn)}#fcevo .clubstat.ok{color:var(--good);border-left-color:var(--good)}#fcevo .clubstat.err{color:var(--bad);border-left-color:var(--bad)}
-    #fcevo .autosync{display:flex;align-items:center;gap:8px;margin-top:9px;font:10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--ash);cursor:pointer}
-    #fcevo .autosync input{margin:0;accent-color:var(--acc)}
     /* accent diamond = a Suggest pick; help badge */
     #fcevo .sug{display:inline-block;width:6px;height:6px;background:var(--acc);transform:rotate(45deg);margin:0 3px 0 6px;vertical-align:middle}
     #fcevo .tag-own{font:8px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--ash);border:1px solid var(--line2);padding:1px 4px;margin-left:7px;vertical-align:middle}
@@ -782,7 +779,6 @@
           </div>
           <div class="rarpanel" id="fcevo-rarpanel"></div>
           <div class="clubstat" id="fcevo-clubstat" data-act="reloadclub" title="Click to reload the club">Club: waiting for app…</div>
-          <label class="autosync" id="fcevo-autosyncrow" title="When on, the tool auto-selects whichever player you open in the EA web app (matched by their stats)."><input type="checkbox" id="fcevo-autosync"> auto-sync to the player you open in EA</label>
           <div class="plist" id="fcevo-list"></div>
         </div>
 
@@ -827,8 +823,8 @@
       claim: q("#fcevo-claim"), delay: q("#fcevo-delay"),
       settings: q("#fcevo-settings"), startmin: q("#fcevo-startmin"),
       rarbtn: q("#fcevo-rarbtn"), rarpanel: q("#fcevo-rarpanel"), clubstat: q("#fcevo-clubstat"),
-      pos: q("#fcevo-pos"), role: q("#fcevo-role"), autosync: q("#fcevo-autosync"),
-      runbtn: q("#fcevo-runbtn"), clearsel: q("#fcevo-clearsel"), pickhdr: q("#fcevo-pickhdr"), autosyncrow: q("#fcevo-autosyncrow"),
+      pos: q("#fcevo-pos"), role: q("#fcevo-role"),
+      runbtn: q("#fcevo-runbtn"), clearsel: q("#fcevo-clearsel"), pickhdr: q("#fcevo-pickhdr"),
       evosec: q("#fcevo-evosec"), list: q("#fcevo-list"),
       queuesec: q("#fcevo-auto"), qlist: q("#fcevo-qlist"), qcount: q("#fcevo-qcount"),
     };
@@ -884,9 +880,6 @@
     els.claim.addEventListener("change", () => savePrefs({ claim: els.claim.checked }));
     els.startmin.checked = !!prefs.startMin;
     els.startmin.addEventListener("change", () => savePrefs({ startMin: els.startmin.checked }));
-    if (prefs.autoSync) els.autosync.checked = true;
-    els.autosync.addEventListener("change", () => setAutoSync(els.autosync.checked));
-    if (prefs.autoSync) setAutoSync(true);
 
     // Close the rarity dropdown if the panel scrolls or resizes.
     root.querySelector(".body").addEventListener("scroll", () => closeRar(), { passive: true });
@@ -1036,74 +1029,9 @@
     updateRunBtn();
   }
 
-  // --- Auto-sync: follow the player opened in the EA detail view ------------
-  // The app has no reliable public accessor for the "currently shown" item, so we
-  // read the six face stats from the detail header (PAC/SHO/PAS/DRI/DEF/PHY) and
-  // match them against the loaded club — a 6-value match is effectively unique and
-  // doesn't depend on obfuscated internals.
-  const FACE_LABELS = ["PAC", "SHO", "PAS", "DRI", "DEF", "PHY"];
-  // Text unique to an open player-detail panel — the "Player Bio" tabs OR the
-  // "Player Details" action menu. Used to tell the detail card apart from the many
-  // squad/list cards that also show PAC/SHO/… numbers.
-  const DETAIL_MARKERS = ["Attributes", "PlayStyles", "Roles", "Player Bio",
-    "Apply Consumable", "Swap Player", "Send to My Club", "Compare Price",
-    "Search on Transfer Market", "Remove Evolution Upgrades", "Player Details"];
-  function nearNumber(el) {
-    for (const n of [el.nextElementSibling, el.previousElementSibling, el.parentElement && el.parentElement.nextElementSibling]) {
-      if (!n) continue;
-      const m = (n.textContent || "").trim().match(/^\d{1,3}$/);
-      if (m) return +m[0];
-    }
-    const pm = ((el.parentElement && el.parentElement.textContent) || "").match(/\b(\d{2,3})\b/);
-    return pm ? +pm[1] : null;
-  }
-  // Pair the six face labels with their adjacent numbers within one container.
-  function scrapeWithin(root) {
-    const found = {};
-    for (const el of root.querySelectorAll("*")) {
-      if (el.children.length) continue;
-      const t = (el.textContent || "").trim();
-      if (FACE_LABELS.indexOf(t) < 0 || found[t] != null) continue;
-      const n = nearNumber(el);
-      if (n != null) found[t] = n;
-    }
-    return FACE_LABELS.every((l) => found[l] != null) ? FACE_LABELS.map((l) => found[l]) : null;
-  }
-  function faceBlockCount(root) {
-    let c = 0;
-    for (const el of root.querySelectorAll("*")) {
-      if (!el.children.length && (el.textContent || "").trim() === "PAC" && nearNumber(el) != null) c++;
-    }
-    return c;
-  }
-  // Read the OPEN player's face stats. The detail-only markers cluster inside the
-  // open panel, so their tightest common ancestor IS that panel; from there we
-  // climb until it wraps exactly one face-stat block (the card) and read it. Squad
-  // and list cards lack the markers, so they're ignored; if the scope isn't a clean
-  // single card, we return null rather than guess.
-  function scrapeFaceStats() {
-    const markers = [];
-    for (const el of document.querySelectorAll("*")) {
-      if (el.children.length || (els.root && els.root.contains(el))) continue;
-      if (DETAIL_MARKERS.indexOf((el.textContent || "").trim()) >= 0) markers.push(el);
-    }
-    if (markers.length < 2) return null;
-    let anc = markers[0];
-    for (const m of markers.slice(1)) { while (anc && !anc.contains(m)) anc = anc.parentElement; }
-    for (let i = 0; i < 8 && anc; i++, anc = anc.parentElement) {
-      const c = faceBlockCount(anc);
-      if (c === 1) return scrapeWithin(anc);
-      if (c > 1) return null; // scope spans multiple cards -> don't guess
-    }
-    return null;
-  }
-  // Preferred detector: read the live UTItemEntity straight off the presented
-  // view controller. getAppMain().getRootViewController() roots a tree of EA
-  // view controllers; the open player-detail panel (e.g. UTSlotActionPanel-
-  // ViewController) holds the opened card on `.item`. This is exact and
-  // identity-stable (real definitionId/id), unlike DOM face-stat scraping.
-  // Returns the entity, or null if the app globals aren't reachable or no
-  // presented controller currently holds a player item.
+  // Read the live UTItemEntity behind the open player-detail panel by walking
+  // getAppMain().getRootViewController(). Used to grab the freshest copy of a
+  // just-evolved card (see freshItemById). Returns null if unreachable / none open.
   function openEntity() {
     if (typeof window.getAppMain !== "function") return null;
     let root; try { root = window.getAppMain().getRootViewController(); } catch (_) { return null; }
@@ -1131,68 +1059,6 @@
     // Breadth-first visits shallow controllers first; the frontmost panel is the
     // deepest presented, so the last hit is the card on top.
     return hits.length ? hits[hits.length - 1] : null;
-  }
-  function entityAttrs(ent) { try { return ent.getAttributes(); } catch (_) { return null; } }
-  function detectOpenPlayer() {
-    const club = clubPlayers();
-    if (!club.length) return null;
-    // Primary: the live entity off the presented view controller (exact match).
-    const ent = openEntity();
-    if (ent) {
-      const byId = club.find((it) => it.id === ent.id);
-      if (byId) return byId;
-      const byDef = ent.definitionId != null && club.find((it) => it.definitionId === ent.definitionId);
-      if (byDef) return byDef;
-      // Have the entity but no id/def hit — bridge via its own attribute tuple.
-      const ea = entityAttrs(ent);
-      if (ea && ea.length >= 6) {
-        return club.find((it) => {
-          let a = null; try { a = it.getAttributes(); } catch (_) {}
-          return a && a.length >= 6 && ea.every((v, i) => +a[i] === +v);
-        }) || null;
-      }
-      return null; // open card isn't a club player -> don't sync
-    }
-    // Fallback: DOM face-stat scraping (works even if the app globals move).
-    const faces = scrapeFaceStats();
-    if (!faces) return null;
-    return club.find((it) => {
-      let a = null; try { a = it.getAttributes(); } catch (_) {}
-      return a && a.length >= 6 && faces.every((v, i) => +a[i] === v);
-    }) || null;
-  }
-  // Console diagnostic to help calibrate the detector against the real app.
-  function findOpenPlayer() {
-    const ent = openEntity();
-    const m = detectOpenPlayer();
-    const info = {
-      path: ent ? "entity" : "dom",
-      entity: ent ? { defId: ent.definitionId, id: ent.id,
-        name: (ent.getStaticData && ent.getStaticData().name) } : null,
-      scrapedFaceStats: ent ? null : scrapeFaceStats(),
-      match: m ? playerName(m) + " (" + m.rating + ")" : null,
-      clubLoaded: clubPlayers().length,
-    };
-    console.log("[FCEvo] findOpenPlayer:", info);
-    return info;
-  }
-  let autoSyncIV = null, autoSyncLast = null;
-  function autoSyncTick() {
-    if (!state.autoSync || state.running) return;
-    const it = detectOpenPlayer();
-    if (it && it.id !== (state.item && state.item.id)) {
-      if (it.id === autoSyncLast && state.item && state.item.id === it.id) return;
-      autoSyncLast = it.id;
-      selectPlayer(it);
-      log("⟳ Auto-synced to " + playerName(it), "head");
-    }
-  }
-  function setAutoSync(on) {
-    state.autoSync = on;
-    savePrefs({ autoSync: on });
-    if (on && !autoSyncIV) autoSyncIV = setInterval(autoSyncTick, 700);
-    if (!on && autoSyncIV) { clearInterval(autoSyncIV); autoSyncIV = null; }
-    if (on) autoSyncTick();
   }
 
   function selectPlayer(it) {
@@ -1295,7 +1161,6 @@
     els.evosec.style.display = auto ? "none" : "";
     els.queuesec.style.display = "none"; // renderQueue re-shows it in Auto when non-empty
     els.preview.style.display = auto ? "none" : (state.item ? "" : "none");
-    if (els.autosyncrow) els.autosyncrow.style.display = auto ? "none" : "";
     if (els.clearsel) els.clearsel.style.display = auto ? "" : "none"; // clears the queue (auto only)
     if (els.pickhdr) els.pickhdr.textContent = auto ? "Click players to queue" : "Select from club";
     renderList(); // one shared list; click = select (single) or queue (auto)
@@ -1581,7 +1446,7 @@
       if (ACAD() && CLUB()) {
         clearInterval(iv);
         if (!document.getElementById("fcevo")) build();
-        window.FCEvo = { applyEvo, claimEvo, runBatch, runDispatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad, readAttrs, dumpEntity, openEntity, detectOpenPlayer, findOpenPlayer, freshItemById, reloadAndReselect, setAutoSync, setMode, autoResolveRole, suggestedSlots, toggleQueue, clearQueue, requestRun };
+        window.FCEvo = { applyEvo, claimEvo, runBatch, runDispatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad, readAttrs, dumpEntity, openEntity, freshItemById, reloadAndReselect, setMode, autoResolveRole, suggestedSlots, toggleQueue, clearQueue, requestRun };
         // Wait until the active squad is loaded (app ready for club searches), then
         // load the club. Hard fallback at 15s so it can't hang; retries cover the rest.
         setClubStatus("Club: waiting for squad…", "load");
