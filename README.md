@@ -4,7 +4,7 @@ A Tampermonkey userscript for the EA FC 26 web app that **batch-applies
 PlayStyle / PlayStyle+ evolutions** — to a single player, or a whole squad at
 once — instead of EA's one-at-a-time UI.
 
-<video src="https://github.com/nezygis/fc26-playstyle-evo-helper/raw/main/demo.mp4" controls width="480"></video>
+https://github.com/user-attachments/assets/df5194ad-1511-4275-a000-de6d88d38d8a
 
 ## Features
 - **Two modes**
