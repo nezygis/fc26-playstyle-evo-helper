@@ -6,7 +6,7 @@
 
 # recording + captioning tooling
 record-demo.cjs
-captions.ass
+captions*.ass
 demo-video/
 mov_frames/
 
@@ -14,6 +14,8 @@ mov_frames/
 *.webm
 *.mov
 demo-*.mp4
+demo2*.mp4
+*-captioned.mp4
 *.png
 
 # local dev workspace (source, data, captures, scratch docs)
