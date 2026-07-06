@@ -1330,17 +1330,25 @@
     return { pos, role };
   }
   function setMode(m) {
-    state.mode = m === "auto" ? "auto" : "single";
+    const next = m === "auto" ? "auto" : "single";
+    if (next !== state.mode) {
+      // Switching modes starts clean — drop the other mode's transient selection.
+      if (next === "auto") { state.selected.clear(); }   // leaving Single: clear evo picks
+      else { state.queue = []; }                          // leaving Auto: clear the queue
+      state.abort = false;
+    }
+    state.mode = next;
     const auto = state.mode === "auto";
     els.root.querySelectorAll(".modetabs button").forEach((b) => b.classList.toggle("on", b.getAttribute("data-mode") === state.mode));
     els.evosec.style.display = auto ? "none" : "";
+    els.queuesec.style.display = "none"; // renderQueue re-shows it in Auto when non-empty
     els.preview.style.display = auto ? "none" : (state.item ? "" : "none");
     els.metarank.style.display = "none"; // renderMetaRank re-shows it in single mode
     if (els.autosyncrow) els.autosyncrow.style.display = auto ? "none" : "";
     if (els.clearsel) els.clearsel.style.display = auto ? "" : "none"; // clears the queue (auto only)
     if (els.pickhdr) els.pickhdr.textContent = auto ? "Click players to queue" : "Select from club";
     renderList(); // one shared list; click = select (single) or queue (auto)
-    if (auto) renderQueue(); else { renderPreview(); renderMetaRank(); }
+    if (auto) renderQueue(); else { renderPreview(); renderGrid(); updateCount(); renderMetaRank(); }
     updateRunBtn();
   }
   function updateRunBtn() {
