@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         PlayStyle Evo Helper — FC26
 // @namespace    https://github.com/nezygis/fc26-playstyle-evo-helper
-// @version      1.1.0
-// @description  Batch-apply PlayStyle / PlayStyle+ evolutions to a single player on the EA FC 26 web app, with role-based suggestions, rarity-eligibility filtering, and live caps.
+// @version      1.2.0
+// @description  Batch-apply PlayStyle / PlayStyle+ evolutions on the EA FC 26 web app. Single mode (one player, manual) or Auto mode (bulk: auto-resolve position/role and apply across many players).
 // @author       nezygis
 // @homepageURL  https://github.com/nezygis/fc26-playstyle-evo-helper
 // @supportURL   https://github.com/nezygis/fc26-playstyle-evo-helper/issues
@@ -177,8 +177,11 @@
   const RARITIES = {"0":"Common","1":"Rare","3":"Team of the Week","5":"Team of the Year","8":"Star Performer","11":"Team of the Season","12":"Icon","14":"Knockout Royalty Hero","15":"Knockout Royalty ICON","18":"Festival of Football ICON","20":"FoF: Answer the Call","21":"Prime Hero","22":"Ratings Reload","23":"Future Stars Hero","26":"UCL Primetime Hero","27":"UWCL Primetime Hero","28":"Festival of Football: Captains","30":"FUT Birthday","31":"UEFA Women's Champions League Primetime","32":"UEFA Women's Champions League Road to the Final","33":"Thunderstruck","34":"FC Pro Live","35":"Winter Wildcards ICON","36":"Journey of Nations","46":"UEFA Europa League Primetime","49":"Winter Wildcards Hero","50":"UEFA Champions League Primetime","55":"Knockout Royalty","57":"Showdown Upgrade","58":"Showdown","62":"Festival of Football Showdown","63":"Festival of Football Showdown Upgrade","64":"TOTY Honourable Mentions","65":"TOTS Honourable Mentions","69":"World Tour Silver Superstar","71":"Future Stars","72":"Heroes","76":"Trophy Titans ICON","77":"Trophy Titans Hero","81":"Classic XI Hero","82":"Unbreakables","83":"Unbreakables Hero","85":"Unbreakables ICON","88":"Unbreakables Evolution","90":"Moments","91":"World Tour","94":"Festival of Football: Star Performer","96":"Joga Bonito","97":"Joga Bonito Hero","98":"Festival of Football: National Pride","104":"Festival of Football: Glory Hunters Red","105":"UEFA Conference League Primetime","107":"Festival of Football: Path to Glory","108":"Time Warp","109":"Festival of Football: Glory Hunters","111":"Fantasy FC","112":"Time Warp ICON","116":"Festival of Football: Captains ICON","117":"Winter Wildcards","120":"TOTS Breakthrough","124":"UEFA Champions League Road to the Final","125":"UEFA Europa League Road to the Final","126":"UEFA Conference League Road to the Final","130":"Festival of Football: Greats of the Game Hero","131":"Festival of Football: Greats of the Game ICON","132":"TOTY HM Evolution","135":"Fantasy FC Hero","147":"FUT Birthday EVO","148":"FUT Birthday Hero","149":"FUT Birthday ICON","150":"Cornerstones","151":"Ultimate Scream","155":"Team of the Year ICON","157":"Thunderstruck ICON","168":"Ultimate Scream Hero","170":"Future Stars ICON"};
 
   const state = {
+    mode: "single", // "single" (manual, one player) | "auto" (bulk auto-resolve)
     item: null, // selected club item entity
     selected: new Set(), // slotIds
+    queue: [], // auto-mode batch: array of { item, selected: Set([slotIds]) }
+    autoChecked: new Set(), // auto-mode: itemIds ticked in the club checklist
     running: false, abort: false,
     rarities: new Set(), // allowed rareflags for club search; empty = all
     clubItems: null, // players we loaded ourselves (full club / eligible rarities)
@@ -215,18 +218,16 @@
   const applyEvo = (slotId, itemId) => svcObserve(ACAD().addItemToSlot(slotId, itemId, undefined));
   const claimEvo = (slotId) => svcObserve(ACAD().claimSlot(slotId));
 
-  async function runBatch(slotIds, opts) {
-    if (state.running) return;
-    if (!state.item) return log("✋ No player selected.", "warn");
-    if (!slotIds.length) return log("✋ Nothing selected.", "warn");
-    state.running = true; state.abort = false; setRunning(true);
-    const itemId = state.item.id;
-    let ok = 0, fail = 0; const done = [];
-    log(`▶ ${slotIds.length} evo(s) → ${playerName(state.item)} (delay ${opts.delayMs}ms, claim=${opts.claim})`, "head");
+  // Core apply loop for one player. Returns { ok, fail, done } and does NOT own
+  // state.running or the post-apply reload — the caller (runBatch / runDispatch)
+  // handles those, so it can be reused for both single and multi-player runs.
+  async function applySlots(item, slotIds, opts, prefix) {
+    const itemId = item.id; let ok = 0, fail = 0; const done = [];
+    prefix = prefix || "";
     for (let i = 0; i < slotIds.length; i++) {
-      if (state.abort) { log("⏹ Aborted.", "warn"); break; }
+      if (state.abort) { log(`${prefix}⏹ Aborted.`, "warn"); break; }
       const evo = byId(slotIds[i]);
-      const tag = `[${i + 1}/${slotIds.length}] ${evo ? evo.n : slotIds[i]}`;
+      const tag = `${prefix}[${i + 1}/${slotIds.length}] ${evo ? evo.n : slotIds[i]}`;
       try {
         const res = await applyEvo(slotIds[i], itemId);
         if (res.data && res.data.isMaximumNumberOfSlotsReached) log(`⚠ ${tag}: max active slots — claim needed`, "warn");
@@ -235,14 +236,22 @@
       } catch (e) { fail++; log(`✗ ${tag} — ${errMsg(e)}`, "err"); }
       if (i < slotIds.length - 1 && !state.abort) await sleep(jitter(opts.delayMs));
     }
-    // Applied evos are now owned by the player; drop them from the selection so the
-    // count and cap projection don't double-count them against the fresh entity.
+    return { ok, fail, done };
+  }
+
+  // Single-player run (Single mode). Applies to state.item, then refreshes it.
+  async function runBatch(slotIds, opts) {
+    if (state.running) return;
+    if (!state.item) return log("✋ No player selected.", "warn");
+    if (!slotIds.length) return log("✋ Nothing selected.", "warn");
+    state.running = true; state.abort = false; setRunning(true);
+    const itemId = state.item.id;
+    log(`▶ ${slotIds.length} evo(s) → ${playerName(state.item)} (delay ${opts.delayMs}ms, claim=${opts.claim})`, "head");
+    const { ok, fail, done } = await applySlots(state.item, slotIds, opts);
+    // Applied evos are now owned; drop them from the selection so the count and cap
+    // projection don't double-count them against the fresh entity.
     done.forEach((s) => state.selected.delete(s));
     refreshClub();
-    // Re-read the just-modified player from its authoritative source and swap the
-    // fresh instance into our loaded snapshot, so the preview shows the newly
-    // applied playstyles/counts instead of the stale search copy. Reassigning the
-    // array (new reference) busts the clubPlayers() memo.
     try {
       const fresh = freshItemById(itemId);
       if (fresh) {
@@ -253,14 +262,59 @@
       }
     } catch (_) {}
     renderPreview(); renderGrid(); updateCount(); renderMetaRank();
-    // The in-place read can still be stale — EA only reflects an applied evo in the
-    // item model after a server re-fetch. Reload so the new playstyles actually show.
+    // In-place read can still be stale — EA only reflects an applied evo after a
+    // server re-fetch. Reload so the new playstyles actually show.
     if (ok > 0) {
       try { await reloadAndReselect(itemId); } catch (_) {}
       renderPreview(); renderGrid(); updateCount(); renderMetaRank();
     }
     state.running = false; setRunning(false);
     log(`■ Done: ${ok} ok, ${fail} failed.`, "head");
+  }
+
+  // Apply entry point for the Run button. Single mode -> runBatch; Auto mode ->
+  // walk the queue, each entry with its own evos, then reload the club once.
+  async function runDispatch(opts) {
+    if (state.mode !== "auto") return runBatch([...state.selected], opts);
+    if (state.running) return;
+    const entries = state.queue.map((qe) => ({ item: qe.item, slots: [...qe.selected] }));
+    if (!entries.length) return log("✋ Queue is empty — tick players and Auto-resolve first.", "warn");
+    if (entries.every((e) => !e.slots.length)) return log("✋ Nothing selected.", "warn");
+    state.running = true; state.abort = false; setRunning(true);
+    let totalOk = 0, totalFail = 0, totalSkip = 0;
+    const multi = entries.length > 1;
+    log(`▶▶ Auto batch: ${entries.length} player${multi ? "s" : ""}`, "head");
+    for (let p = 0; p < entries.length; p++) {
+      if (state.abort) { log("⏹ Aborted.", "warn"); break; }
+      const { item, slots } = entries[p];
+      log(`━━ ${p + 1}/${entries.length}: ${playerName(item)} (${item.rating}) — ${slots.length} evo(s) ━━`, "head");
+      // Skip already-owned & over-cap for this player (server would 460 anyway).
+      const valid = slots.filter((sid) => {
+        const evo = byId(sid);
+        if (!evo) return true;
+        if (hasEvo(item, evo)) { totalSkip++; log(`⊘ ${playerName(item)}: ${evo.n} — already owned`, "dim"); return false; }
+        const used = evo.kind === "PS+" ? (numPlus(item) ?? 0) : (numBasic(item) ?? 0);
+        const cap = evo.kind === "PS+" ? CAP_PLUS : CAP_BASIC;
+        if (used >= cap) { totalSkip++; log(`⊘ ${playerName(item)}: ${evo.n} — ${evo.kind} cap ${used}/${cap}`, "dim"); return false; }
+        return true;
+      });
+      if (!valid.length) { log(`⊘ ${playerName(item)}: nothing to apply (owned/capped)`, "dim"); continue; }
+      const res = await applySlots(item, valid, opts, `[${playerName(item)}] `);
+      totalOk += res.ok; totalFail += res.fail;
+      if (multi && p < entries.length - 1 && !state.abort) await sleep(opts.delayMs * 2);
+    }
+    refreshClub();
+    // Reload the club once so applied evos show, then re-point queue entries at the
+    // fresh entities.
+    if (totalOk > 0) {
+      const focusId = state.item ? state.item.id : entries[0].item.id;
+      try { await reloadAndReselect(focusId); } catch (_) {}
+      state.queue = state.queue.map((qe) => { try { return { item: findItemById(qe.item.id) || qe.item, selected: qe.selected }; } catch (_) { return qe; } });
+    }
+    renderQueue(); renderPreview(); renderGrid(); updateCount(); renderMetaRank();
+    state.running = false; setRunning(false);
+    const skipMsg = totalSkip ? `, ${totalSkip} skipped` : "";
+    log(`■ Auto done: ${totalOk} ok, ${totalFail} failed${skipMsg} across ${entries.length} player${multi ? "s" : ""}.`, "head");
   }
 
   // Mirror what the app's own academy flow does after an apply, so views pick up
@@ -369,7 +423,7 @@
     }
     state.clubItems = all;
     if (els.rarpanel) els.rarpanel.dataset.built = ""; // rebuild rarity list with real counts
-    renderResults();
+    renderClubList();
     return all.length;
   }
   // Retry wrapper: waits/retries until the club search is accepted by the app.
@@ -449,7 +503,7 @@
       if (m && name && name.toLowerCase() !== "any") found[m[1]] = name;
     });
     const n = Object.keys(found).length;
-    if (n) { Object.assign(RARITIES, found); renderResults(); renderPreview(); }
+    if (n) { Object.assign(RARITIES, found); renderClubList(); renderPreview(); }
     log(n ? `↻ Scraped ${n} rarities (applied live).` : "✋ No rarity dropdown found — open TM search → rarity filter first.", n ? "head" : "warn");
     console.log("[FCEvo] rarities for data/rarities.json:\n" + JSON.stringify(found));
     return found;
@@ -640,6 +694,28 @@
     #fcevo .cap:last-child{border-right:0}
     #fcevo .cap b{font:800 17px/1 var(--grot);font-variant-numeric:tabular-nums}#fcevo .cap.full b{color:var(--bad)}
     #fcevo .cap small{color:var(--ash);display:block;font:9px/1.6 var(--mono);text-transform:uppercase;letter-spacing:.12em}
+    #fcevo .modetabs{display:flex;gap:0;padding:0 12px;border-bottom:1px solid var(--line);background:var(--char)}
+    #fcevo .modetabs button{flex:1;background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ash);padding:9px 6px;cursor:pointer;
+      font:700 11px/1 var(--grot);text-transform:uppercase;letter-spacing:.16em;margin-bottom:-1px}
+    #fcevo .modetabs button:hover{color:var(--bone)}
+    #fcevo .modetabs button.on{color:var(--bone);border-bottom-color:var(--acc)}
+    #fcevo .autolist{display:flex;flex-direction:column;gap:0;max-height:300px;overflow:auto}
+    #fcevo .arow{display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none}
+    #fcevo .arow input{margin:0;cursor:pointer;accent-color:var(--acc)}
+    #fcevo .arow .ov{font:800 14px/1 var(--grot);color:var(--bone);min-width:26px;font-variant-numeric:tabular-nums}
+    #fcevo .arow .nm{flex:1;font-size:12px}
+    #fcevo .arow.hasps .nm{color:var(--warn)}
+    #fcevo .rolechip{font:10px/1.4 var(--mono);color:var(--good);border:1px solid var(--line2);padding:1px 5px;white-space:nowrap;text-transform:uppercase;letter-spacing:.04em}
+    #fcevo .autobar{display:flex;align-items:center;gap:10px;margin-top:10px}
+    #fcevo .queue-sec{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+    #fcevo .queue-sec h4{margin:0 0 7px;font:600 9px/1 var(--mono);text-transform:uppercase;letter-spacing:.2em;color:var(--ash)}
+    #fcevo .queue-list{display:flex;flex-direction:column;gap:0}
+    #fcevo .qi{display:flex;align-items:center;gap:8px;padding:5px 2px;border-bottom:1px solid var(--line)}
+    #fcevo .qi .ov{font:800 13px/1 var(--grot);color:var(--bone);min-width:24px;font-variant-numeric:tabular-nums}
+    #fcevo .qi .nm{flex:1;font-size:12px}
+    #fcevo .qi .qn{font:10px/1 var(--mono);color:var(--acc);white-space:nowrap}
+    #fcevo .qi .qx{background:none;border:0;color:var(--ash);cursor:pointer;font-size:13px;padding:0 4px;line-height:1}
+    #fcevo .qi .qx:hover{color:var(--bad)}
     #fcevo .tabs{display:flex;gap:0;border-bottom:1px solid var(--line)}
     #fcevo .tabs button{flex:1;background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ash);padding:8px 6px;cursor:pointer;
       font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;margin-bottom:-1px}
@@ -746,21 +822,35 @@
     root.id = "fcevo";
     root.innerHTML = `
       <header><b class="wm">Evo&nbsp;Helper</b><i class="dia" aria-hidden="true"></i><span class="sp"></span><button data-act="min" title="Collapse"><svg class="chev" viewBox="0 0 14 9" width="12" height="8" aria-hidden="true"><path d="M1 6.5L7 1.5L13 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></header>
+      <div class="modetabs">
+        <button data-mode="single" class="on">Single</button>
+        <button data-mode="auto">Auto</button>
+      </div>
       <div class="body">
         <div class="sec">
-          <h4><span class="ix">01</span> Select from club</h4>
+          <h4><span class="ix">01</span> <span id="fcevo-pickhdr">Select from club</span></h4>
           <div class="row srow">
             <input type="text" id="fcevo-search" placeholder="search club by name…">
             <button class="mini rarbtn" data-act="rar" id="fcevo-rarbtn">Rarity: all ▾</button>
           </div>
           <div class="rarpanel" id="fcevo-rarpanel"></div>
           <div class="clubstat" id="fcevo-clubstat" data-act="reloadclub" title="Click to reload the club">Club: waiting for app…</div>
-          <label class="autosync" title="When on, the tool auto-selects whichever player you open in the EA web app (matched by their stats)."><input type="checkbox" id="fcevo-autosync"> auto-sync to the player you open in EA</label>
+          <label class="autosync" id="fcevo-autosyncrow" title="When on, the tool auto-selects whichever player you open in the EA web app (matched by their stats)."><input type="checkbox" id="fcevo-autosync"> auto-sync to the player you open in EA</label>
+        </div>
+
+        <div class="sec" id="fcevo-auto" style="display:none">
+          <div class="autolist" id="fcevo-autolist"></div>
+          <div class="autobar"><button class="go" data-act="autopick" style="flex:1" data-tip="Auto-resolve|Reads each ticked card's primary position, picks its default role (with a CM shooting/defending tweak), and queues that role's suggested evos.">Auto-resolve &amp; queue</button><span class="count" id="fcevo-autocount">0 checked</span></div>
+          <div class="queue-sec" id="fcevo-queuesec" style="display:none">
+            <h4>Player queue · <span id="fcevo-qcount">0</span></h4>
+            <div class="queue-list" id="fcevo-qlist"></div>
+            <div class="row" style="margin-top:6px;justify-content:flex-end"><button class="mini" data-act="clearq">Clear queue</button></div>
+          </div>
         </div>
 
         <div class="sec" id="fcevo-preview" style="display:none"></div>
 
-        <div class="sec">
+        <div class="sec" id="fcevo-evosec">
           <h4><span class="ix">02</span> Choose evolutions</h4>
           <div class="tabs">
             <button data-tab="PS+">PlayStyle+ (36)</button>
@@ -786,7 +876,7 @@
           <span class="sp"></span><span class="count" id="fcevo-count">0 selected</span>
         </div>
         <div class="row">
-          <button class="go" data-act="run" style="flex:1">Apply selected</button>
+          <button class="go" data-act="run" id="fcevo-runbtn" style="flex:1">Apply selected</button>
           <button class="go stop" data-act="stop" style="display:none;flex:1">Stop</button>
         </div>
         <div class="statusbar">
@@ -802,6 +892,10 @@
       claim: q("#fcevo-claim"), delay: q("#fcevo-delay"), logwrap: q("#fcevo-logwrap"), logpane: q("#fcevo-logpane"),
       rarbtn: q("#fcevo-rarbtn"), rarpanel: q("#fcevo-rarpanel"), clubstat: q("#fcevo-clubstat"),
       pos: q("#fcevo-pos"), role: q("#fcevo-role"), metarank: q("#fcevo-metarank"), autosync: q("#fcevo-autosync"),
+      runbtn: q("#fcevo-runbtn"), pickhdr: q("#fcevo-pickhdr"), autosyncrow: q("#fcevo-autosyncrow"),
+      evosec: q("#fcevo-evosec"), autosec: q("#fcevo-auto"), autolist: q("#fcevo-autolist"),
+      autobar: q("#fcevo-auto").querySelector(".autobar"), autocount: q("#fcevo-autocount"),
+      queuesec: q("#fcevo-queuesec"), qlist: q("#fcevo-qlist"), qcount: q("#fcevo-qcount"),
     };
     function q(s) { return root.querySelector(s); }
 
@@ -816,11 +910,15 @@
     q("#fcevo-search").addEventListener("input", (e) => {
       const v = e.target.value.trim().toLowerCase();
       clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => { searchQ = v; comboOpen = true; comboHl = 0; renderResults(); }, 150);
+      searchTimer = setTimeout(() => {
+        searchQ = v;
+        if (state.mode === "auto") { renderAutoList(); return; }
+        comboOpen = true; comboHl = 0; renderResults();
+      }, 150);
     });
     // Open on focus; a prior pick leaves the player's name in the box, so select it
     // so typing immediately searches for a different player instead of appending.
-    q("#fcevo-search").addEventListener("focus", (e) => { if (state.item) e.target.select(); openCombo(); });
+    q("#fcevo-search").addEventListener("focus", (e) => { if (state.mode === "auto") return; if (state.item) e.target.select(); openCombo(); });
     q("#fcevo-search").addEventListener("blur", () => setTimeout(closeCombo, 130));
     q("#fcevo-filter").addEventListener("input", (e) => { filter = e.target.value.toLowerCase(); renderGrid(); });
     els.pos.addEventListener("change", populateRoles);
@@ -832,6 +930,7 @@
     makeDraggable(root, root.querySelector("header"));
     initTips();
     setTab("PS+");
+    setMode("single");
 
     // Restore persisted preferences (delay, claim, panel position, min/log state).
     if (Number.isFinite(prefs.delay)) els.delay.value = prefs.delay;
@@ -864,7 +963,7 @@
     root.addEventListener("keydown", (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
-        if (!state.running) runBatch([...state.selected], { delayMs: +els.delay.value, claim: els.claim.checked });
+        if (!state.running) runDispatch({ delayMs: +els.delay.value, claim: els.claim.checked });
       } else if (e.key === "Escape" && state.running) { state.abort = true; }
     });
     // Default the club-search filter to the evos' eligible rarities.
@@ -879,15 +978,21 @@
   function onClick(e) {
     const act = e.target.getAttribute("data-act");
     const t = e.target.getAttribute("data-tab");
+    const m = e.target.getAttribute("data-mode");
+    if (m) return setMode(m);
     if (t) return setTab(t);
-    if (act === "min") { const m = els.root.classList.toggle("min"); e.target.closest("button").title = m ? "Expand" : "Collapse"; savePrefs({ min: m }); return; }
+    if (act === "min") { const mn = els.root.classList.toggle("min"); e.target.closest("button").title = mn ? "Expand" : "Collapse"; savePrefs({ min: mn }); return; }
     if (act === "logtoggle") { const o = els.logwrap.classList.toggle("open"); e.target.textContent = o ? "Log ▴" : "Log ▾"; savePrefs({ logOpen: o }); return; }
     if (act === "reloadclub") return startClubLoad(1, true);
     if (act === "rar") return toggleRarPanel();
     if (act === "suggest") return suggest();
     if (act === "none") { current().forEach((x) => state.selected.delete(x.s)); return (renderGrid(), updateCount()); }
-    if (act === "run") return runBatch([...state.selected], { delayMs: +els.delay.value, claim: els.claim.checked });
-    if (act === "stop") state.abort = true;
+    if (act === "run") return runDispatch({ delayMs: +els.delay.value, claim: els.claim.checked });
+    if (act === "stop") return (state.abort = true);
+    if (act === "autopick") return autoQueueSelected();
+    if (act === "clearq") return clearQueue();
+    const qrm = e.target.getAttribute("data-qrm");
+    if (qrm) return removeFromQueue(Number(qrm));
   }
 
   const current = () => (tab === "PS+" ? PSP : PS);
@@ -955,10 +1060,20 @@
       if (all) all.checked = state.rarities.size === 0;
     }
     els.rarbtn.textContent = "Rarity: " + (state.rarities.size ? state.rarities.size + " ▾" : "all ▾");
-    renderResults();
+    renderClubList();
   }
 
   // ---- player results ----
+  // Colored PS+/PS usage chips (green=room, red=at cap). Shared by both lists.
+  function psChips(it) {
+    const np = numPlus(it), nb = numBasic(it);
+    if (np == null && nb == null) return "";
+    const plusFull = (np ?? 0) >= CAP_PLUS, baseFull = (nb ?? 0) >= CAP_BASIC;
+    return `<span class="psc">`
+      + `<span class="pchip ${plusFull ? "full" : "room"}" title="PlayStyle+ used / cap">+${np ?? "?"}/${CAP_PLUS}</span>`
+      + `<span class="pchip ${baseFull ? "full" : "room"}" title="Basic PlayStyles used / cap">${nb ?? "?"}/${CAP_BASIC}</span>`
+      + `</span>`;
+  }
   function playerRow(it, idx) {
     const row = document.createElement("div");
     row.className = "pr";
@@ -968,17 +1083,8 @@
     row.addEventListener("mousedown", (e) => { e.preventDefault(); selectPlayer(it); });
     row.addEventListener("mouseenter", () => { comboHl = idx; highlightRows(); });
     const gk = (() => { try { return it.isGK(); } catch (_) { return false; } })();
-    const np = numPlus(it), nb = numBasic(it);
-    let counts = "";
-    if (np != null || nb != null) {
-      const plusFull = (np ?? 0) >= CAP_PLUS, baseFull = (nb ?? 0) >= CAP_BASIC;
-      counts = `<span class="psc">`
-        + `<span class="pchip ${plusFull ? "full" : "room"}" title="PlayStyle+ used / cap">+${np ?? "?"}/${CAP_PLUS}</span>`
-        + `<span class="pchip ${baseFull ? "full" : "room"}" title="Basic PlayStyles used / cap">${nb ?? "?"}/${CAP_BASIC}</span>`
-        + `</span>`;
-    }
     row.innerHTML = `<span class="ov">${it.rating ?? "?"}</span><span class="nm">${esc(playerName(it))}</span>
-      ${gk ? '<span class="gk">GK</span>' : ""}${counts}`;
+      ${gk ? '<span class="gk">GK</span>' : ""}${psChips(it)}`;
     return row;
   }
   // --- club-search combobox --------------------------------------------------
@@ -1217,29 +1323,150 @@
     const rs = pos && ROLES[pos] ? Object.keys(ROLES[pos]) : [];
     els.role.innerHTML = '<option value="">role…</option>' + rs.map((r) => `<option>${esc(r)}</option>`).join("");
   }
-  function suggest() {
-    if (!state.item) return log("✋ Select a player first.", "warn");
-    const pos = els.pos.value, role = els.role.value;
-    if (!pos || !role || !ROLES[pos] || !ROLES[pos][role]) return log("✋ Pick a position and role.", "warn");
-    const it = state.item, gk = isGKItem(it);
-    let plusUsed = numPlus(it) ?? 0, baseUsed = numBasic(it) ?? 0, added = 0, owned = 0;
-    const skip = [];
-    state.selected.clear();
-    ROLES[pos][role].forEach((name, idx) => {
+  // Pure: which evo slotIds to select for a player at a position+role, respecting
+  // caps, ownership and GK scope. Returns { slots:[slotIds], owned, skip:[names] }.
+  function suggestedSlots(it, pos, role) {
+    const names = (ROLES[pos] && ROLES[pos][role]) || [];
+    const gk = isGKItem(it);
+    let plusUsed = numPlus(it) ?? 0, baseUsed = numBasic(it) ?? 0, owned = 0;
+    const slots = [], skip = [];
+    names.forEach((name, idx) => {
       const wantPlus = idx < 3; // top 3 -> PS+
       const evo = wantPlus ? pspByName[name] : psByName[name];
       if (!evo) { skip.push(name); return; }
       if (evo.g && !gk) { skip.push(name + " (GK-only)"); return; }
-      if (hasEvo(it, evo)) { owned++; return; } // already has it
+      if (hasEvo(it, evo)) { owned++; return; }
       if (wantPlus) { if (plusUsed >= CAP_PLUS) { skip.push(name + "+ (no room)"); return; } plusUsed++; }
       else { if (baseUsed >= CAP_BASIC) { skip.push(name + " (no room)"); return; } baseUsed++; }
-      state.selected.add(evo.s);
-      added++;
+      slots.push(evo.s);
     });
+    return { slots, owned, skip };
+  }
+  function suggest() {
+    if (!state.item) return log("✋ Select a player first.", "warn");
+    const pos = els.pos.value, role = els.role.value;
+    if (!pos || !role || !ROLES[pos] || !ROLES[pos][role]) return log("✋ Pick a position and role.", "warn");
+    const { slots, owned, skip } = suggestedSlots(state.item, pos, role);
+    state.selected.clear();
+    slots.forEach((s) => state.selected.add(s));
     setTab(idxTab());
     renderGrid(); updateCount(); renderMetaRank();
-    log(`✨ ${pos} · ${role}: preselected ${added}${owned ? `, ${owned} already owned` : ""}${skip.length ? `, skipped ${skip.length}` : ""}. Tweak freely, then Apply.`, "head");
+    log(`✨ ${pos} · ${role}: preselected ${slots.length}${owned ? `, ${owned} already owned` : ""}${skip.length ? `, skipped ${skip.length}` : ""}. Tweak freely, then Apply.`, "head");
     if (skip.length) log("   skipped: " + skip.join(", "), "dim");
+  }
+
+  // --- Auto (bulk) mode: resolver + checklist + queue -----------------------
+  // attributes = [pace, shooting, passing, dribbling, defending, physical]
+  const ATT = (it, i) => { try { const a = (it.getAttributes && it.getAttributes()) || it.attributes; return a && a[i] != null ? +a[i] : null; } catch (_) { return null; } };
+  const DEFAULT_ROLE = {
+    "ST": "Advanced Forward", "RW / LW": "Inside Forward", "RM / LM": "Inside Forward",
+    "CAM": "Shadow Striker", "CM": "Box to Box", "CDM": "Deep Lying Playmaker",
+    "RB / LB": "Fullback", "CB": "Defender", "GK": "Goalkeeper",
+  };
+  const CM_DLP_RATIO = 0.94; // shooting/defending at or below this -> Deep Lying Playmaker
+  // Pick { pos, role } from a card's primary position, with a CM attribute tweak.
+  function autoResolveRole(it) {
+    let pos = POS_GROUP[it && it.preferredPosition];
+    if (!pos) { const g = playerPositionGroups(it); pos = g[0]; }
+    if (!pos) return null;
+    let role = DEFAULT_ROLE[pos];
+    if (pos === "CM") {
+      const sho = ATT(it, 1), def = ATT(it, 4);
+      if (sho != null && def != null && def > 0) {
+        if (sho / def <= CM_DLP_RATIO) role = "Deep Lying Playmaker";
+        else if (def < 80 && sho > def) role = "Playmaker";
+      }
+    }
+    if (!ROLES[pos] || !ROLES[pos][role]) role = ROLES[pos] ? Object.keys(ROLES[pos])[0] : role;
+    return { pos, role };
+  }
+  function setMode(m) {
+    state.mode = m === "auto" ? "auto" : "single";
+    const auto = state.mode === "auto";
+    els.root.querySelectorAll(".modetabs button").forEach((b) => b.classList.toggle("on", b.getAttribute("data-mode") === state.mode));
+    els.autosec.style.display = auto ? "" : "none";
+    els.evosec.style.display = auto ? "none" : "";
+    els.preview.style.display = auto ? "none" : (state.item ? "" : "none");
+    els.metarank.style.display = "none"; // renderMetaRank re-shows it in single mode
+    if (els.autosyncrow) els.autosyncrow.style.display = auto ? "none" : "";
+    if (els.pickhdr) els.pickhdr.textContent = auto ? "Tick players to auto-evolve" : "Select from club";
+    if (auto) { closeCombo(); renderAutoList(); renderQueue(); } else { renderPreview(); renderMetaRank(); }
+    updateRunBtn();
+  }
+  // Refresh whichever club list the current mode shows.
+  function renderClubList() { if (state.mode === "auto") renderAutoList(); else renderResults(); }
+  function updateAutoCount() { if (els.autocount) els.autocount.textContent = state.autoChecked.size + " checked"; }
+  function autoRow(it) {
+    const row = document.createElement("label");
+    const hasEvos = (numPlus(it) ?? 0) > 0 || (numBasic(it) ?? 0) > 0;
+    row.className = "pr arow" + (hasEvos ? " hasps" : "");
+    const rr = autoResolveRole(it), gk = isGKItem(it);
+    const roleTxt = rr ? `${rr.pos} · ${rr.role}` : "—";
+    row.innerHTML = `<input type="checkbox" ${state.autoChecked.has(it.id) ? "checked" : ""}>`
+      + `<span class="ov">${it.rating ?? "?"}</span>`
+      + `<span class="nm">${esc(playerName(it))}${gk ? ' <span class="gk">GK</span>' : ""}</span>`
+      + `<span class="rolechip" title="Auto-resolved position · role">${esc(roleTxt)}</span>`
+      + psChips(it);
+    const cb = row.querySelector("input");
+    cb.addEventListener("change", () => {
+      if (cb.checked) state.autoChecked.add(it.id); else state.autoChecked.delete(it.id);
+      updateAutoCount();
+    });
+    return row;
+  }
+  const AUTO_CAP = 100;
+  function renderAutoList() {
+    const box = els.autolist; if (!box) return; box.innerHTML = "";
+    const all = clubPlayers().filter(rarityAllowed);
+    const matches = (searchQ ? all.filter((it) => playerName(it).toLowerCase().includes(searchQ)) : all)
+      .sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    if (!matches.length) { box.innerHTML = `<div class="rhint">${all.length ? "No matches." : "Club still loading…"}</div>`; updateAutoCount(); return; }
+    matches.slice(0, AUTO_CAP).forEach((it) => box.appendChild(autoRow(it)));
+    if (matches.length > AUTO_CAP) box.insertAdjacentHTML("beforeend", `<div class="rhint">+${matches.length - AUTO_CAP} more — type to filter</div>`);
+    updateAutoCount();
+  }
+  // Auto-resolve every ticked card and queue its suggested evos.
+  function autoQueueSelected() {
+    if (!state.autoChecked.size) return log("✋ Tick some players first.", "warn");
+    let added = 0, empty = 0;
+    state.autoChecked.forEach((id) => {
+      const it = findItemById(id);
+      if (!it) return;
+      const rr = autoResolveRole(it);
+      if (!rr) { empty++; return; }
+      const { slots } = suggestedSlots(it, rr.pos, rr.role);
+      if (!slots.length) { empty++; return; }
+      const existing = state.queue.find((qe) => qe.item.id === id);
+      if (existing) existing.selected = new Set(slots);
+      else state.queue.push({ item: it, selected: new Set(slots) });
+      added++;
+    });
+    renderQueue(); updateRunBtn();
+    log(`✨ Auto-queued ${added} player(s)${empty ? `, ${empty} with no applicable evos (owned/capped)` : ""}. Review, then Apply.`, "head");
+  }
+  function renderQueue() {
+    if (!els.queuesec) return;
+    if (!state.queue.length) { els.queuesec.style.display = "none"; return; }
+    els.queuesec.style.display = "";
+    els.qcount.textContent = state.queue.length + " player" + (state.queue.length > 1 ? "s" : "");
+    els.qlist.innerHTML = state.queue.map((qe) => {
+      const it = qe.item, gk = isGKItem(it), n = qe.selected.size;
+      const selPlus = [...qe.selected].filter((s) => { const e = byId(s); return e && e.kind === "PS+"; }).length;
+      return `<div class="qi"><span class="ov">${it.rating ?? "?"}</span><span class="nm">${esc(playerName(it))}${gk ? ' <span class="gk">GK</span>' : ""}</span>`
+        + `<span class="qn" title="${selPlus} PS+, ${n - selPlus} PS">${n} evos</span>`
+        + `<button class="qx" data-qrm="${it.id}" title="Remove">✕</button></div>`;
+    }).join("");
+  }
+  function removeFromQueue(id) { state.queue = state.queue.filter((qe) => qe.item.id !== id); renderQueue(); updateRunBtn(); }
+  function clearQueue() { state.queue = []; renderQueue(); updateRunBtn(); log("🗑 Queue cleared.", "dim"); }
+  function updateRunBtn() {
+    if (!els.runbtn) return;
+    if (state.mode === "auto") {
+      const n = state.queue.length, total = state.queue.reduce((s, qe) => s + qe.selected.size, 0);
+      els.runbtn.textContent = n ? `Apply to ${n} player${n > 1 ? "s" : ""} (${total} evos)` : "Apply queue";
+    } else {
+      els.runbtn.textContent = "Apply selected";
+    }
   }
 
   // Build the ranked list for the selected player + role, sorted by stat score.
@@ -1510,7 +1737,7 @@
       if (ACAD() && CLUB()) {
         clearInterval(iv);
         if (!document.getElementById("fcevo")) build();
-        window.FCEvo = { applyEvo, claimEvo, runBatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad, readAttrs, scoreEvo, dumpEntity, openEntity, detectOpenPlayer, findOpenPlayer, freshItemById, reloadAndReselect, setAutoSync };
+        window.FCEvo = { applyEvo, claimEvo, runBatch, runDispatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad, readAttrs, scoreEvo, dumpEntity, openEntity, detectOpenPlayer, findOpenPlayer, freshItemById, reloadAndReselect, setAutoSync, setMode, autoResolveRole, suggestedSlots, autoQueueSelected };
         // Wait until the active squad is loaded (app ready for club searches), then
         // load the club. Hard fallback at 15s so it can't hang; retries cover the rest.
         setClubStatus("Club: waiting for squad…", "load");
