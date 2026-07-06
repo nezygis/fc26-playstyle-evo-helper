@@ -771,7 +771,7 @@
       </div>
       <div class="modetabs">
         <button data-mode="single" class="on">Single</button>
-        <button data-mode="auto">Auto</button>
+        <button data-mode="auto">Bulk</button>
       </div>
       <div class="body">
         <div class="sec">
@@ -1295,7 +1295,7 @@
       const n = state.queue.length;
       els.runbtn.textContent = n ? `Evolve selected players (${n})` : "Evolve selected players";
     } else {
-      els.runbtn.textContent = "Apply selected";
+      els.runbtn.textContent = "Apply selected evolutions";
     }
   }
   function disarmRun() { clearTimeout(_armTimer); if (els.runbtn) { els.runbtn.dataset.armed = ""; els.runbtn.classList.remove("armed"); } updateRunBtn(); }
