@@ -586,7 +586,7 @@
   // ==========================================================================
   // UI
   // ==========================================================================
-  let els = {}, tab = "PS+", filter = "", searchQ = "";
+  let els = {}, tab = "PS+", searchQ = "";
   let _armTimer = null; // in-panel two-step confirm for the Evolve button
   let rarQ = ""; // rarity dropdown filter query
 
@@ -804,9 +804,8 @@
             <select id="fcevo-role" style="flex:1.3"></select>
             <button class="mini" data-act="suggest" data-tip="Suggest|Preselects this role's recommended playstyles — the top 3 as PlayStyle+, the rest as basic — skipping any the player already owns and respecting the caps. Tweak freely afterward.">Suggest</button>
           </div>
-          <div class="row" style="margin:7px 0">
-            <input type="text" id="fcevo-filter" placeholder="filter evolutions…">
-            <button class="mini" data-act="none">Clear</button>
+          <div class="row" style="margin:7px 0;justify-content:flex-end">
+            <button class="mini" data-act="none">Clear selection</button>
           </div>
           <div class="grid" id="fcevo-grid"></div>
         </div>
@@ -845,7 +844,6 @@
     // A prior pick leaves the player's name in the box; select it so typing
     // immediately searches for a different player instead of appending.
     q("#fcevo-search").addEventListener("focus", (e) => { if (state.item) e.target.select(); });
-    q("#fcevo-filter").addEventListener("input", (e) => { filter = e.target.value.toLowerCase(); renderGrid(); });
     els.pos.addEventListener("change", populateRoles);
     // Re-check glyphs once the EA icon font finishes loading (avoids a flash of
     // initials on first paint before the font is ready).
@@ -1419,7 +1417,7 @@
     const box = els.grid; box.innerHTML = "";
     const it = state.item;
     const gkPlayer = it ? (() => { try { return it.isGK(); } catch (_) { return false; } })() : null;
-    const list = current().filter((x) => !filter || x.n.toLowerCase().includes(filter));
+    const list = current();
     // Bucket by EA category, then render each non-empty category in game order.
     const groups = {};
     list.forEach((evo) => { const c = CAT_OF[baseName(evo)] || "Other"; (groups[c] || (groups[c] = [])).push(evo); });
