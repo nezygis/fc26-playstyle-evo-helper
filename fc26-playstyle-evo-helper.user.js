@@ -648,7 +648,7 @@
     #fcevo{--ink:#0b0f14;--char:#141b23;--char2:#1d2732;--line:#28323d;--line2:#394653;
       --bone:#e7edf3;--ash:#899;--acc:#33d6c1;--acc-ink:#052420;--good:#4fd08a;--bad:#ff6b6b;--warn:#f2c14e;
       --gold1:#f6d879;--gold2:#c9942f;--mono:ui-monospace,Menlo,Consolas,monospace;--grot:-apple-system,"Helvetica Neue",Arial,sans-serif;
-      position:fixed;top:54px;right:16px;width:440px;max-height:90vh;z-index:2147483647;background:var(--ink);color:var(--bone);
+      position:fixed;top:54px;right:16px;width:384px;max-height:90vh;z-index:2147483647;background:var(--ink);color:var(--bone);
       font:12px/1.45 var(--grot);border:1px solid var(--line2);box-shadow:0 26px 64px -24px #000;display:flex;flex-direction:column;overflow:hidden}
     #fcevo *{box-sizing:border-box}
     #fcevo select,#fcevo input{min-width:0}
