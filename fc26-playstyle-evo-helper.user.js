@@ -1380,15 +1380,25 @@
   // ---- evo grid ----
   function evoCard(evo, it, gkPlayer) {
     const owned = it ? hasEvo(it, evo) : false;
+    // A base PlayStyle is redundant when the player already has — or has selected —
+    // the + version of the same playstyle (same rewardId). Block it so you can't
+    // "downgrade" or double up; the + already covers it.
+    let plusBlocked = false;
+    if (it && evo.kind === "PS") {
+      let plusOwned = false; try { plusOwned = !!it.hasPlusPlayStyle(evoTrait(evo)); } catch (_) {}
+      const plusSel = [...state.selected].some((s) => { const e = byId(s); return e && e.kind === "PS+" && e.r === evo.r; });
+      plusBlocked = plusOwned || plusSel;
+    }
     // GK-exclusive evos (g=1) need a GK; "any player" evos (g=0) are open to all (incl. GKs)
     const wrongScope = it ? (!!evo.g && !gkPlayer) : false;
-    const dis = wrongScope || owned || !!evo.disGH; // owned -> would 460; disGH -> not applicable yet
+    const dis = wrongScope || owned || !!evo.disGH || plusBlocked; // owned -> would 460; disGH -> not applicable yet
     const sel = state.selected.has(evo.s);
     const card = document.createElement("div");
     card.className = "ec" + (evo.kind === "PS+" ? " psp" : "") + (sel ? " sel" : "") + (owned ? " owned" : "") + (dis ? " dis" : "");
     const nm = dispName(baseName(evo));
     const tipTitle = nm + (evo.kind === "PS+" ? " +" : "")
       + (wrongScope ? " · goalkeepers only" : "") + (owned ? " · already owned" : "")
+      + (plusBlocked && !owned ? " · + version already applied/selected" : "")
       + (evo.disGH && !owned ? " · needs 3 PS+ first (or none left)" : "");
     card.setAttribute("data-tip", tipTitle + "|" + psDesc(baseName(evo)));
     card.innerHTML = `<div class="ico" data-ini="${esc(initials(nm))}"><i class="${iconClass(evo.kind === "PS+", evoTrait(evo))}"></i></div>` +
