@@ -746,6 +746,8 @@
       font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;margin-bottom:-1px}
     #fcevo .tabs button:hover{color:var(--bone)}
     #fcevo .tabs button.on{color:var(--bone);border-bottom-color:var(--acc)}
+    #fcevo .tabs button.disabled{opacity:.38;cursor:help}
+    #fcevo .tabs button.disabled:hover{color:var(--ash)}
     #fcevo .queue-list{display:flex;flex-direction:column;gap:8px;max-height:340px;overflow-y:auto}
     #fcevo .qi{background:var(--char);border:1px solid var(--line);padding:7px 8px}
     #fcevo .qi-head{display:flex;align-items:center;gap:8px}
@@ -874,7 +876,7 @@
           <div class="tabs" style="margin-top:9px">
             <button data-tab="PS+">PlayStyle+ (36)</button>
             <button data-tab="PS">PlayStyle (36)</button>
-            <button data-tab="GH4" class="gh4tab" style="display:none" data-tip="4th PlayStyle+|Glory Hunters cards can hold a 4th PS+ via reward evos. Pick one — only enabled once the card already has 3 PS+.">4th PS+</button>
+            <button data-tab="GH4" class="gh4tab disabled" data-tip="4th PlayStyle+|Glory Hunters cards can hold a 4th PS+ via reward evos — only for a GH card that already has 3 PS+.">4th PS+</button>
           </div>
           <div class="row" style="margin:7px 0;justify-content:flex-end">
             <button class="mini" data-act="none">Clear selection</button>
@@ -945,6 +947,7 @@
     }
     setTab("PS+");
     setMode("single");
+    updateGHTab(); // paint the always-visible 4th-PS+ tab in its locked state
 
     // Restore persisted preferences (localStorage — persists across sessions).
     if (Number.isFinite(prefs.delay)) els.delay.value = prefs.delay;
@@ -995,7 +998,7 @@
   }
 
   const current = () => (tab === "GH4" ? ghForPlayer(state.item) : tab === "PS+" ? PSP : PS);
-  function setTab(t) { tab = t; els.root.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.getAttribute("data-tab") === t)); renderGrid(); }
+  function setTab(t) { if (t === "GH4" && ghDisabledReason()) return; tab = t; els.root.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.getAttribute("data-tab") === t)); renderGrid(); }
 
   // ---- rarity multi-select ----
   // Anchor the rarity dropdown under its button (right-aligned, since the button
@@ -1157,21 +1160,38 @@
   // Show the "4th PS+" tab only for Glory Hunters cards; auto-load the reward evos
   // the first time one is picked, then refresh the grid if that tab is open.
   function ghTabBtn() { return els.root && els.root.querySelector('.tabs button[data-tab="GH4"]'); }
+  const ghKinds = () => new Set(GH.map((g) => g.n)).size;
+  // Why the 4th-PS+ tab is locked for the current pick ("" = it's available).
+  function ghDisabledReason() {
+    const it = state.item;
+    if (!it) return "Select a Glory Hunters card first";
+    if (!isGH(it)) return "Glory Hunters cards only";
+    const np = numPlus(it) ?? 0;
+    if (np < 3) return "Needs 3 PS+ first";
+    if (np >= 4) return "Already has 4 PS+";
+    return "";
+  }
+  // Keep the 4th-PS+ tab ALWAYS visible (so people discover it) but greyed out with
+  // a hover tip unless the selected card is a Glory Hunters card with exactly 3 PS+.
   function updateGHTab() {
     const btn = ghTabBtn(); if (!btn) return;
-    if (!isGH(state.item)) { btn.style.display = "none"; if (tab === "GH4") setTab("PS+"); return; }
-    btn.style.display = "";
+    const reason = ghDisabledReason();
+    const enabled = !reason;
+    btn.classList.toggle("disabled", !enabled);
+    btn.setAttribute("data-tip", "4th PlayStyle+|" + (enabled
+      ? "Add a 4th PS+ to this Glory Hunters card via a reward evo — pick one below."
+      : reason + ". The 4th PS+ is only for Glory Hunters cards that already have 3 PS+."));
     const paint = () => {
       const b = ghTabBtn(); if (!b) return;
-      const kinds = new Set(GH.map((g) => g.n)).size;
-      b.textContent = "4th PS+" + (ghLoaded ? " (" + kinds + ")" : "");
-      if (state.item && isGH(state.item) && tab === "GH4") { renderGrid(); updateCount(); }
+      b.textContent = "4th PS+" + (ghLoaded && ghKinds() ? " (" + ghKinds() + ")" : "");
+      if (state.item && !ghDisabledReason() && tab === "GH4") { renderGrid(); updateCount(); }
     };
+    if (!enabled) { if (tab === "GH4") setTab("PS+"); paint(); return; }
     if (ghLoaded) { paint(); return; }
     log("Loading Glory Hunters evos…", "dim");
     loadGHEvos().then(() => {
       paint();
-      log(GH.length ? `Glory Hunters evos ready — ${new Set(GH.map((g) => g.n)).size} playstyle${new Set(GH.map((g) => g.n)).size === 1 ? "" : "s"}.`
+      log(GH.length ? `Glory Hunters evos ready — ${ghKinds()} playstyle${ghKinds() === 1 ? "" : "s"}.`
                     : "No Glory Hunters reward evos found — open the Evolutions hub once, then reselect.", GH.length ? "head" : "warn");
     });
   }
