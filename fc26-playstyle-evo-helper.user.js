@@ -221,7 +221,10 @@
       let chosen = null, applicable = false;
       for (const g of list) {
         const slot = getSlot(g.s);
-        let ok = false; try { ok = !!it && !!slot && it.canApplyTo(slot); } catch (_) {}
+        // slot.meetsRequirements(player) evaluates the slot's eligibility rules
+        // (rarity 109 + already-3-PS+). (item.canApplyTo is a consumable-item method,
+        // unrelated to Academy slots — it always returns false for a player.)
+        let ok = false; try { ok = !!it && !!slot && slot.meetsRequirements(it); } catch (_) {}
         let free = true; try { free = slot ? !slot.hasSlottedPlayer() : true; } catch (_) {}
         if (ok && free) { chosen = g; applicable = true; break; }
         if (!chosen) chosen = g;
