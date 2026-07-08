@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PlayStyle Evo Helper — FC26
 // @namespace    https://github.com/nezygis/fc26-playstyle-evo-helper
-// @version      2.1.0
+// @version      2.1.1
 // @description  Batch-apply PlayStyle / PlayStyle+ evolutions on the EA FC 26 web app. Single mode (one player, hand-pick) or Bulk mode (click players to queue and evolve many at once).
 // @author       nezygis
 // @homepageURL  https://github.com/nezygis/fc26-playstyle-evo-helper
@@ -59,7 +59,7 @@
   // slotName "GH 4th <PlayStyle>+"). Loaded live on demand — one-time consumables
   // with duplicates per playstyle, so the grid dedupes by playstyle.
   const GH = []; // {n, s(slotId), r(rewardId), kind:"PS+", g:0, gh:true}
-  let ghLoaded = false, ghLoading = false;
+  let ghLoaded = false, ghLoading = false, ghLoadPromise = null;
   // EA groups PlayStyles into these six categories in the in-game UI; the grid
   // mirrors that grouping (and order) so it matches the player's mental model.
   const CAT_ORDER = ["Finishing", "Passing", "Defending", "Ball Control", "Physical", "Goalkeeping"];
@@ -181,23 +181,32 @@
   // so we keep requesting pages until the loaded count stops growing — then rebuild
   // the GH catalog from every slot whose name starts "GH 4th ".
   async function loadGHEvos() {
-    if (ghLoaded || ghLoading) return GH;
-    ghLoading = true;
-    try {
-      const S = ACAD(), R = acadRepo();
-      if (S && R && S.requestSlotsByCategory) {
-        let prev = -1, off = 0; const COUNT = 60;
-        for (let i = 0; i < 12; i++) {
-          try { await svcObserve(S.requestSlotsByCategory({ categoryId: 9, offset: off, count: COUNT, sort: 0 })); } catch (_) {}
-          const n = (R.getSlots() || []).filter((s) => s.categoryId === 9).length;
-          if (n === prev) break; // no new slots -> category fully loaded (or cache returned all)
-          prev = n; off += COUNT;
+    if (ghLoaded) return GH;
+    if (ghLoadPromise) return ghLoadPromise; // concurrent callers await the in-flight load
+    ghLoadPromise = (async () => {
+      ghLoading = true;
+      let completed = false;
+      try {
+        const S = ACAD(), R = acadRepo();
+        // Fetch the Rewards category (id 9) directly — no need for the user to open
+        // anything in the web app. Page until the loaded count stops growing.
+        if (S && R && S.requestSlotsByCategory) {
+          let prev = -1, off = 0; const COUNT = 60;
+          completed = true;
+          for (let i = 0; i < 12; i++) {
+            try { await svcObserve(S.requestSlotsByCategory({ categoryId: 9, offset: off, count: COUNT, sort: 0 })); }
+            catch (_) { completed = false; break; } // a page failed -> leave unloaded so it retries
+            const n = (R.getSlots() || []).filter((s) => s.categoryId === 9).length;
+            if (n === prev) break; // no new slots -> category fully loaded (or cache returned all)
+            prev = n; off += COUNT;
+          }
         }
-      }
-      rebuildGH();
-      ghLoaded = true;
-    } finally { ghLoading = false; }
-    return GH;
+        rebuildGH();
+        if (completed) ghLoaded = true; // only lock in on a real successful load; else retry next call
+      } finally { ghLoading = false; ghLoadPromise = null; }
+      return GH;
+    })();
+    return ghLoadPromise;
   }
   function rebuildGH() {
     const R = acadRepo(); if (!R) return;
@@ -225,7 +234,9 @@
         // (rarity 109 + already-3-PS+). (item.canApplyTo is a consumable-item method,
         // unrelated to Academy slots — it always returns false for a player.)
         let ok = false; try { ok = !!it && !!slot && slot.meetsRequirements(it); } catch (_) {}
-        let free = true; try { free = slot ? !slot.hasSlottedPlayer() : true; } catch (_) {}
+        // Fail closed: these are one-time reward slots, so an unknown availability
+        // (missing slot or hasSlottedPlayer throwing) must NOT count as free.
+        let free = false; try { free = !!slot && !slot.hasSlottedPlayer(); } catch (_) {}
         if (ok && free) { chosen = g; applicable = true; break; }
         if (!chosen) chosen = g;
       }
@@ -1191,8 +1202,9 @@
     log("Loading Glory Hunters evos…", "dim");
     loadGHEvos().then(() => {
       paint();
-      log(GH.length ? `Glory Hunters evos ready — ${ghKinds()} playstyle${ghKinds() === 1 ? "" : "s"}.`
-                    : "No Glory Hunters reward evos found — open the Evolutions hub once, then reselect.", GH.length ? "head" : "warn");
+      if (GH.length) log(`Glory Hunters evos ready — ${ghKinds()} playstyle${ghKinds() === 1 ? "" : "s"}.`, "head");
+      else if (ghLoaded) log("No Glory Hunters reward evos on this account.", "warn");
+      else log("Couldn't load Glory Hunters evos — will retry on next select.", "warn");
     });
   }
 
