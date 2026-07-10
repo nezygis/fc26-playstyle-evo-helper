@@ -1375,7 +1375,7 @@
     const rr = autoResolveRole(it);
     const { slots } = rr ? suggestedSlots(it, rr.pos, rr.role) : { slots: [] };
     if (!slots.length) return log(`⊘ ${playerName(it)}: nothing to add (owned/capped).`, "warn");
-    // Commented by UIN state.queue.push({ item: it, role: rr, slots });
+    // Commented by state.queue.push({ item: it, role: rr, slots });
 	const positions = playerPositionGroups(it);
 
 	state.queue.push({
@@ -1390,7 +1390,7 @@
     renderList(); renderQueue(); updateRunBtn();
     log(`➕ Queued ${playerName(it)} (${slots.length} evo${slots.length > 1 ? "s" : ""}).`, "head");
   }
-	// Added by UIN
+	// Added by 
 	function queueRoles(pos) {
 	return ROLES[pos] ? Object.keys(ROLES[pos]) : [];
 	}
@@ -1512,11 +1512,11 @@ function updateQueueItem(index) {
     els.qcount.textContent = state.queue.length + " player" + (state.queue.length > 1 ? "s" : "");
     /*els.qlist.innerHTML = state.queue.map((q, idx) => {
       const it = q.item, gk = isGKItem(it);
-      //Commented by UIN const roleTxt = q.role ? `${q.role.pos} · ${q.role.role}` : "";
+      //Commented by const roleTxt = q.role ? `${q.role.pos} · ${q.role.role}` : "";
       const chips = renderQueueChips(q.slots);
       return `<div class="qi"><div class="qi-head"><span class="ov">${it.rating ?? "?"}</span>`
         + `<span class="nm">${esc(playerName(it))}${gk ? ' <span class="gk">GK</span>' : ""}</span>`
-        // Commented by uin + (roleTxt ? `<span class="rolechip">${esc(roleTxt)}</span>` : "")
+        // Commented by + (roleTxt ? `<span class="rolechip">${esc(roleTxt)}</span>` : "")
 		+ `<div class="qedit">
 
 			<div class="qedit-row">
