@@ -1403,6 +1403,11 @@
   function renderQueueItem(q, idx) {
 
     const it = q.item;
+
+    // Ensure numeric values remain numeric before HTML interpolation.
+    const itemId = Number.isFinite(Number(it.id)) ? Number(it.id) : 0;
+    const rating = Number.isFinite(Number(it.rating)) ? Number(it.rating) : "?";
+
     const gk = isGKItem(it);
 
     const chips = renderQueueChips(q.slots);
@@ -1412,7 +1417,7 @@
 
             <div class="qi-head">
 
-                <span class="ov">${it.rating ?? "?"}</span>
+                <span class="ov">${rating}</span>
 
                 <span class="nm">
                     ${esc(playerName(it))}
@@ -1465,7 +1470,7 @@
 
                 <button
                     class="qx"
-                    data-qrm="${it.id}"
+                    data-qrm="${itemId}"
                     title="Remove from queue">
 
                     ✕
