@@ -1423,9 +1423,9 @@
 
                     <div class="qedit-row">
 
-                        <label>Position</label>
+                        <label for="qpos-${idx}">Position</label>
 
-                        <select
+                        <select id="qpos-${idx}"
                             class="qpos"
                             data-index="${idx}">
 
@@ -1443,9 +1443,9 @@
 
                     <div class="qedit-row">
 
-                        <label>Role</label>
+                        <label for="qrole-${idx}">Role</label>
 
-                        <select
+                        <select id="qrole-${idx}"
                             class="qrole"
                             data-index="${idx}">
 
@@ -1619,8 +1619,13 @@ function bindQueueEvents() {
 
             refreshQueueSuggestions(q);
 
-            updateQueueItem(idx);
+            if (!q.slots.length) {
+                removeFromQueue(q.item.id);          // existing queue removal path
+                return;
+            }
 
+            updateQueueItem(idx);
+            updateRunBtn();
             return;
         }
 
@@ -1630,7 +1635,13 @@ function bindQueueEvents() {
 
             refreshQueueSuggestions(q);
 
+            if (!q.slots.length) {
+                removeFromQueue(q.item.id);          // existing queue removal path
+                return;
+            }
+
             updateQueueItem(idx);
+            updateRunBtn();
 
         }
 
