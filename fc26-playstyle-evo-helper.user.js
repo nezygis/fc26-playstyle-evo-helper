@@ -783,6 +783,31 @@
     #fcevo .mrow .mbar i{display:block;height:100%;background:var(--acc)}
     #fcevo .mrow .msc{grid-area:sc;text-align:right;font:800 15px/1 var(--grot);color:var(--bone);font-variant-numeric:tabular-nums}
     #fcevo .mrow .mwhy{grid-area:why;font:9px/1.3 var(--mono);color:var(--ash);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+	#fcevo .qedit{
+		display:flex;
+		flex-direction:column;
+		gap:4px;
+		margin-top:8px;
+	}
+
+	#fcevo .qedit-row{
+		display:flex;
+		align-items:center;
+		gap:8px;
+	}
+
+	#fcevo .qedit-row label{
+		width:54px;
+		color:var(--ash);
+		font:10px/1 var(--mono);
+		text-transform:uppercase;
+	}
+
+	#fcevo .qedit-row select{
+		flex:1;
+		padding:4px 6px;
+		font-size:11px;
+	}
     /* Evo icons: the PlayStyle glyph is the star — big icon in a light rounded
        container (thin border, subtle fill). PlayStyle+ carries a gold accent so
        it still reads apart from base; owned dims; selected lights up with a glow. */
@@ -948,6 +973,7 @@
     // initials on first paint before the font is ready).
     try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(markGlyphs); } catch (_) {}
     populatePositions();
+	bindQueueEvents();
     makeDraggable(root, root.querySelector("header"));
     initTips();
     // Default the club filter to evo-eligible rarities BEFORE the first list render,
@@ -958,6 +984,7 @@
     }
     setTab("PS+");
     setMode("single");
+
     updateGHTab(); // paint the always-visible 4th-PS+ tab in its locked state
 
     // Restore persisted preferences (localStorage — persists across sessions).
@@ -1165,7 +1192,7 @@
     renderPreview(); renderGrid(); updateCount();
     if (els.preview && els.preview.scrollIntoView) els.preview.scrollIntoView({ block: "nearest" });
     log("🎯 Selected " + playerName(it) + " (" + it.rating + ")", "head");
-    updateGHTab();
+  updateGHTab();
   }
 
   // Show the "4th PS+" tab only for Glory Hunters cards; auto-load the reward evos
@@ -1243,6 +1270,21 @@
     });
     return { slots, owned, skip };
   }
+
+  //added new
+  function refreshQueueSuggestions(q) {
+
+    if (!q) return;
+
+    const result = suggestedSlots(
+        q.item,
+        q.role.pos,
+        q.role.role
+    );
+
+    q.slots = result.slots;
+
+}
   function suggest() {
     if (!state.item) return log("✋ Select a player first.", "warn");
     const pos = els.pos.value, role = els.role.value;
@@ -1333,33 +1375,284 @@
     const rr = autoResolveRole(it);
     const { slots } = rr ? suggestedSlots(it, rr.pos, rr.role) : { slots: [] };
     if (!slots.length) return log(`⊘ ${playerName(it)}: nothing to add (owned/capped).`, "warn");
-    state.queue.push({ item: it, role: rr, slots });
+    // Commented by state.queue.push({ item: it, role: rr, slots });
+	const positions = playerPositionGroups(it);
+
+	state.queue.push({
+		item: it,
+		positions,
+		role: {
+			pos: rr.pos,
+			role: rr.role
+		},
+		slots
+	});
     renderList(); renderQueue(); updateRunBtn();
     log(`➕ Queued ${playerName(it)} (${slots.length} evo${slots.length > 1 ? "s" : ""}).`, "head");
   }
+	// Added by 
+	function queueRoles(pos) {
+	return ROLES[pos] ? Object.keys(ROLES[pos]) : [];
+	}
   function removeFromQueue(id) { const i = state.queue.findIndex((q) => q.item.id === id); if (i >= 0) state.queue.splice(i, 1); renderList(); renderQueue(); updateRunBtn(); }
   function clearQueue() { if (!state.queue.length) return; state.queue = []; renderList(); renderQueue(); updateRunBtn(); log("Queue cleared.", "dim"); }
+
+
+
+
+  function renderQueueItem(q, idx) {
+
+    const it = q.item;
+
+    // Ensure numeric values remain numeric before HTML interpolation.
+    const itemId = Number.isFinite(Number(it.id)) ? Number(it.id) : 0;
+    const rating = Number.isFinite(Number(it.rating)) ? Number(it.rating) : "?";
+
+    const gk = isGKItem(it);
+
+    const chips = renderQueueChips(q.slots);
+
+    return `
+        <div class="qi" data-index="${idx}">
+
+            <div class="qi-head">
+
+                <span class="ov">${rating}</span>
+
+                <span class="nm">
+                    ${esc(playerName(it))}
+                    ${gk ? '<span class="gk">GK</span>' : ""}
+                </span>
+
+                <div class="qedit">
+
+                    <div class="qedit-row">
+
+                        <label for="qpos-${idx}">Position</label>
+
+                        <select id="qpos-${idx}"
+                            class="qpos"
+                            data-index="${idx}">
+
+                            ${q.positions.map(p => `
+                                <option
+                                    value="${esc(p)}"
+                                    ${p === q.role.pos ? "selected" : ""}>
+                                    ${esc(p)}
+                                </option>
+                            `).join("")}
+
+                        </select>
+
+                    </div>
+
+                    <div class="qedit-row">
+
+                        <label for="qrole-${idx}">Role</label>
+
+                        <select id="qrole-${idx}"
+                            class="qrole"
+                            data-index="${idx}">
+
+                            ${queueRoles(q.role.pos).map(r => `
+                                <option
+                                    value="${esc(r)}"
+                                    ${r === q.role.role ? "selected" : ""}>
+                                    ${esc(r)}
+                                </option>
+                            `).join("")}
+
+                        </select>
+
+                    </div>
+
+                </div>
+
+                <button
+                    class="qx"
+                    data-qrm="${itemId}"
+                    title="Remove from queue">
+
+                    ✕
+
+                </button>
+
+            </div>
+
+            <div class="qps">
+                ${chips}
+            </div>
+
+        </div>
+    `;
+
+}
+function updateQueueItem(index) {
+
+    if (!els.qlist) return;
+
+    const q = state.queue[index];
+    if (!q) return;
+
+    const row = els.qlist.querySelector(
+        `.qi[data-index="${index}"]`
+    );
+
+    if (!row) return;
+
+    const scrollTop = els.qlist.scrollTop;
+
+    row.outerHTML = renderQueueItem(q, index);
+
+    els.qlist.scrollTop = scrollTop;
+
+    markGlyphs();
+
+
+}
   function renderQueue() {
     if (!els.queuesec) return;
     if (!state.queue.length) { els.queuesec.style.display = "none"; return; }
     els.queuesec.style.display = "";
     els.qcount.textContent = state.queue.length + " player" + (state.queue.length > 1 ? "s" : "");
-    els.qlist.innerHTML = state.queue.map((q) => {
+    /*els.qlist.innerHTML = state.queue.map((q, idx) => {
       const it = q.item, gk = isGKItem(it);
-      const roleTxt = q.role ? `${q.role.pos} · ${q.role.role}` : "";
-      const chips = q.slots.map((sid) => {
-        const evo = byId(sid); if (!evo) return "";
-        const nm = dispName(baseName(evo));
-        return `<span class="chip ${evo.kind === "PS+" ? "ic" : ""}" data-ini="${esc(initials(nm))}" data-tip="${esc(nm)}${evo.kind === "PS+" ? " +" : ""}|${esc(psDesc(baseName(evo)))}"><i class="${iconClass(evo.kind === "PS+", evoTrait(evo))}"></i></span>`;
-      }).join("");
+      //Commented by const roleTxt = q.role ? `${q.role.pos} · ${q.role.role}` : "";
+      const chips = renderQueueChips(q.slots);
       return `<div class="qi"><div class="qi-head"><span class="ov">${it.rating ?? "?"}</span>`
         + `<span class="nm">${esc(playerName(it))}${gk ? ' <span class="gk">GK</span>' : ""}</span>`
-        + (roleTxt ? `<span class="rolechip">${esc(roleTxt)}</span>` : "")
+        // Commented by + (roleTxt ? `<span class="rolechip">${esc(roleTxt)}</span>` : "")
+		+ `<div class="qedit">
+
+			<div class="qedit-row">
+
+				<label>Position</label>
+
+				<select
+					class="qpos"
+					data-index="${idx}">
+
+					${q.positions.map(p =>
+						`<option value="${esc(p)}"
+							${p===q.role.pos?"selected":""}>
+							${esc(p)}
+						</option>`).join("")}
+
+				</select>
+
+			</div>
+
+			<div class="qedit-row">
+
+				<label>Role</label>
+
+				<select
+					class="qrole"
+					data-index="${idx}">
+
+					${queueRoles(q.role.pos).map(r =>
+						`<option value="${esc(r)}"
+							${r===q.role.role?"selected":""}>
+							${esc(r)}
+						</option>`).join("")}
+
+				</select>
+
+			</div>
+
+		</div>`
         + `<button class="qx" data-qrm="${it.id}" title="Remove from queue">✕</button></div>`
         + `<div class="qps">${chips}</div></div>`;
-    }).join("");
+    }).join("");*/
+	els.qlist.innerHTML = state.queue
+    .map(renderQueueItem)
+    .join("");
     markGlyphs();
   }
+
+
+  function renderQueueChips(slots) {
+
+    return slots.map((sid) => {
+
+        const evo = byId(sid);
+        if (!evo) return "";
+
+        const nm = dispName(baseName(evo));
+
+        return `
+            <span
+                class="chip ${evo.kind === "PS+" ? "ic" : ""}"
+                data-ini="${esc(initials(nm))}"
+                data-tip="${esc(nm)}${evo.kind === "PS+" ? " +" : ""}|${esc(psDesc(baseName(evo)))}">
+
+                <i class="${iconClass(
+                    evo.kind === "PS+",
+                    evoTrait(evo)
+                )}"></i>
+
+            </span>
+        `;
+
+    }).join("");
+
+}
+
+function bindQueueEvents() {
+
+    if (!els.qlist) return;
+
+    els.qlist.addEventListener("change", (e) => {
+
+        const target = e.target;
+
+        if (!(target instanceof HTMLSelectElement)) return;
+
+        const idx = Number(target.dataset.index);
+
+        const q = state.queue[idx];
+
+        if (!q) return;
+
+        if (target.classList.contains("qpos")) {
+
+            q.role.pos = target.value;
+
+            const roles = queueRoles(q.role.pos);
+
+            q.role.role = roles.length ? roles[0] : "";
+
+            refreshQueueSuggestions(q);
+
+            if (!q.slots.length) {
+                removeFromQueue(q.item.id);          // existing queue removal path
+                return;
+            }
+
+            updateQueueItem(idx);
+            updateRunBtn();
+            return;
+        }
+
+        if (target.classList.contains("qrole")) {
+
+            q.role.role = target.value;
+
+            refreshQueueSuggestions(q);
+
+            if (!q.slots.length) {
+                removeFromQueue(q.item.id);          // existing queue removal path
+                return;
+            }
+
+            updateQueueItem(idx);
+            updateRunBtn();
+
+        }
+
+    });
+
+}
 
   // Dump a player entity so the obfuscated attribute field names can be mapped.
   function dumpEntity() {
@@ -1489,7 +1782,7 @@
     updateCount();
   }
 
-  function checkCap(evo) {
+    function checkCap(evo) {
     if (!state.item) return true;
     const it = state.item;
     if (evo.kind === "PS+") {
