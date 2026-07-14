@@ -38,13 +38,13 @@
 
   const CAP_PLUS = 3, CAP_BASIC = 8, TRAIT_OFFSET = 301; // traitId = rewardId - 301 (icon classes run 0..35)
   const SETTLE_MS = 700; // wait after an apply/remove for the server to commit before re-fetching (else stale card)
-  const VERSION = "2.1.3"; // keep in sync with the @version header above
   const REPO_URL = "https://github.com/nezygis/fc26-playstyle-evo-helper";
   // Clicking this opens the raw userscript, which Tampermonkey shows as an install/update page.
   const INSTALL_URL = "https://raw.githubusercontent.com/nezygis/fc26-playstyle-evo-helper/main/fc26-playstyle-evo-helper.user.js";
   // Small JSON I can edit to broadcast a notice without shipping a new build.
-  //   { "version": "2.1.4", "title": "Heads up", "body": "Your message here.", "url": "https://…", "linkText": "Open" }
-  // version → header "update" badge; title/body/link → a centered popup. Blank = nothing shown.
+  //   { "title": "Heads up", "body": "Your message here.", "url": "https://…", "linkText": "Open" }
+  // title/body/link → a centered popup. Blank = nothing shown. (The header update
+  // badge is separate — it compares @version, so version lives only in the header.)
   const NOTICE_URL = "https://raw.githubusercontent.com/nezygis/fc26-playstyle-evo-helper/main/notice.json";
   // Anonymous, cookieless load ping (GoatCounter — no PII, no cookies). Uses the
   // no-JS pixel endpoint with our own path so it logs "tool loaded", not EA's pages.
@@ -531,6 +531,7 @@
   async function removeLastEvo() {
     const it = state.item;
     if (!it) return log("✋ Select a player first.", "warn");
+    if (!evoRemovalEnabled()) return log("✋ Evo removal is unavailable.", "warn");
     if (!canRemoveEvo(it)) return log("✋ No evolution to remove on this player.", "warn");
     if (state.running) return;
     const itemId = it.id, name = playerName(it);
@@ -963,7 +964,7 @@
         <label title="Add the player to each slot, then claim/finish it so the PlayStyle is locked in."><input type="checkbox" id="fcevo-claim" checked> claim &amp; finish</label>
         <label>delay <input type="number" id="fcevo-delay" value="300" min="200" step="100" style="width:54px"> ms</label>
         <label title="When on, the panel loads collapsed each time you open the web app."><input type="checkbox" id="fcevo-startmin"> start minimized</label>
-        <div class="setfoot">v${VERSION} · <a href="${REPO_URL}" target="_blank" rel="noopener noreferrer">GitHub&nbsp;↗</a></div>
+        <div class="setfoot">${runningVersion() ? "v" + runningVersion() + " · " : ""}<a href="${REPO_URL}" target="_blank" rel="noopener noreferrer">GitHub&nbsp;↗</a></div>
       </div>
       <div class="modetabs">
         <button data-mode="single" class="on">Single</button>
@@ -1100,6 +1101,7 @@
     });
     log("Ready.", "head");
     if (ELIGIBLE_RARITIES.length) log("Search limited to " + ELIGIBLE_RARITIES.length + " eligible rarities (adjust via Rarity ▾).", "dim");
+    checkUpdate();
     checkNotice();
     try { new Image().src = METRICS_URL + "?p=/evo/load&t=" + encodeURIComponent("Evo Helper"); } catch (_) {} // anonymous cookieless load ping, best-effort
   }
@@ -1113,18 +1115,29 @@
     }
     return 0;
   }
-  // Fetch notice.json and show an in-panel banner when a newer version is out
-  // and/or a custom message is set. Best-effort, non-blocking, silent on failure.
+  // Running version straight from the userscript manager, so @version stays the
+  // single source of truth (no duplicated literal). null if the manager hides it.
+  function runningVersion() {
+    try { if (typeof GM_info !== "undefined" && GM_info.script && GM_info.script.version) return GM_info.script.version; } catch (_) {}
+    return null;
+  }
+  // Header "update" badge when main's @version is newer than what's running.
+  function checkUpdate() {
+    const running = runningVersion();
+    if (!running) return; // manager didn't expose it — skip (Tampermonkey still auto-updates)
+    fetch(INSTALL_URL + "?t=" + Date.now()).then((r) => r.text()).then((t) => {
+      const m = t.match(/@version\s+([0-9.]+)/);
+      if (!m || cmpVer(m[1], running) <= 0) return;
+      const b = document.getElementById("fcevo-upd");
+      if (b) { b.textContent = "⬆ v" + m[1]; b.style.display = ""; }
+    }).catch(() => {});
+  }
+  // Centered popup for an optional broadcast (title/body/link from notice.json).
   function checkNotice() {
     fetch(NOTICE_URL + "?t=" + Date.now()).then((r) => r.json()).then((n) => {
       if (!n) return;
-      const update = n.version && cmpVer(n.version, VERSION) > 0;
       const title = (n.title || "").trim();
       const body = (n.body || n.message || "").trim();
-      // A newer version → small "click to update" badge in the header (links to
-      // the raw userscript on GitHub, which Tampermonkey opens as an update page).
-      if (update) { const b = document.getElementById("fcevo-upd"); if (b) { b.textContent = "⬆ v" + n.version; b.style.display = ""; } }
-      // A custom title/body → centered dismissible popup (an optional announcement).
       if (title || body) {
         const id = "msg|" + title + "|" + body; // remember dismissal per message
         try { if (localStorage.getItem("fcevo:notice-seen") === id) return; } catch (_) {}
@@ -1160,7 +1173,7 @@
         r.dataset.exLeft = r.style.left || ""; r.dataset.exRight = r.style.right || "";
         r.style.left = "auto";
         r.style.right = Math.max(4, Math.round(window.innerWidth - rect.right)) + "px";
-        closeSettings();
+        closeSettings(); closeRar();
       } else {
         r.style.left = r.dataset.exLeft || ""; r.style.right = r.dataset.exRight || "";
       }
@@ -1177,6 +1190,7 @@
     if (act === "reloadclub") return startClubLoad(1, true);
     if (act === "rmevo") {
       const b = e.target.closest("button"); if (!b) return;
+      if (state.running) return; // don't arm/confirm mid-run (removeLastEvo would no-op and leave it armed)
       if (b.dataset.armed === "1") { b.dataset.armed = ""; return removeLastEvo(); }
       b.dataset.armed = "1"; b.textContent = "Confirm remove?"; b.classList.add("armed");
       setTimeout(() => { if (b && b.dataset.armed === "1") { b.dataset.armed = ""; b.textContent = "Remove last evo"; b.classList.remove("armed"); } }, 3500);
