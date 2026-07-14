@@ -49,9 +49,10 @@ copyright / attribution notice (credit **nezygis** and link back to this
 project).
 
 ## Privacy
-On load the script sends a single **anonymous** ping to a public hit counter so
-I can see roughly how many people use it. It's just a count — **no personal
-data, no cookies, no tracking**. Nothing else leaves your browser.
+On load the script sends a single **anonymous, cookieless** ping to
+[GoatCounter](https://www.goatcounter.com/) so I can see roughly how many people
+use it — a privacy-friendly analytics tool that stores **no personal data and no
+cookies**. Nothing else leaves your browser.
 
 ## ⚠️ Disclaimer
 Automating the EA FC web app is **against EA's Terms of Service** and can get
