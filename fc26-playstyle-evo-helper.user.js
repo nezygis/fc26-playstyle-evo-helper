@@ -38,6 +38,9 @@
 
   const CAP_PLUS = 3, CAP_BASIC = 8, TRAIT_OFFSET = 301; // traitId = rewardId - 301 (icon classes run 0..35)
   const SETTLE_MS = 700; // wait after an apply/remove for the server to commit before re-fetching (else stale card)
+  const VERSION = "2.1.3"; // keep in sync with the @version header above
+  const REPO_URL = "https://github.com/nezygis/fc26-playstyle-evo-helper";
+  const RAW_MAIN_URL = "https://raw.githubusercontent.com/nezygis/fc26-playstyle-evo-helper/main/fc26-playstyle-evo-helper.user.js";
   // Glory Hunters cards (Festival of Football rarity 109, or 104 "Red") can hold a
   // 4th PS+ via account-specific reward evos — everyone else caps at 3.
   const GH_RARITIES = new Set([104, 109]);
@@ -725,6 +728,8 @@
     #fcevo header{display:flex;align-items:center;gap:9px;padding:12px 13px;background:var(--char);border-bottom:1px solid var(--line);cursor:move;user-select:none}
     #fcevo header .wm{font-weight:800;font-size:12px;letter-spacing:.16em;text-transform:uppercase}
     #fcevo header .dia{width:7px;height:7px;background:var(--acc);transform:rotate(45deg);display:inline-block}
+    #fcevo .upd{font:700 10px/1 var(--grot);color:var(--acc-ink);background:var(--acc);padding:3px 6px;border-radius:3px;text-decoration:none;white-space:nowrap;margin-left:2px}
+    #fcevo .upd:hover{filter:brightness(1.1)}
     #fcevo header .sp{flex:1}
     #fcevo header button{background:transparent;color:var(--ash);border:1px solid var(--line2);width:26px;height:24px;padding:0;cursor:pointer;font:600 13px/1 var(--grot);display:flex;align-items:center;justify-content:center}
     #fcevo header button:hover{color:var(--ink);background:var(--acc);border-color:var(--acc)}
@@ -734,6 +739,9 @@
     #fcevo .setpanel label{display:flex;align-items:center;gap:7px;white-space:nowrap;cursor:pointer}
     #fcevo .setpanel input[type=checkbox]{accent-color:var(--acc);cursor:pointer;margin:0}
     #fcevo .setpanel input[type=number]{font-family:var(--mono);background:var(--ink);color:var(--bone);border:1px solid var(--line2);padding:2px 4px}
+    #fcevo .setfoot{border-top:1px solid var(--line2);margin-top:3px;padding-top:8px;font-size:11px;color:var(--ash)}
+    #fcevo .setfoot a{color:var(--acc);text-decoration:none}
+    #fcevo .setfoot a:hover{text-decoration:underline}
     #fcevo.min .chev{transform:rotate(180deg)}
     #fcevo .body{padding:11px 13px;overflow:auto;display:flex;flex-direction:column;gap:10px}
     /* collapsed = just the title bar: no body, no mode tabs, shrink to content width */
@@ -927,11 +935,12 @@
     const root = document.createElement("div");
     root.id = "fcevo";
     root.innerHTML = `
-      <header><b class="wm">Evo&nbsp;Helper</b><i class="dia" aria-hidden="true"></i><span class="sp"></span><button data-act="settings" class="hbtn" title="Settings">⚙</button><button data-act="min" title="Collapse"><svg class="chev" viewBox="0 0 14 9" width="12" height="8" aria-hidden="true"><path d="M1 6.5L7 1.5L13 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button data-act="close" class="xbtn" title="Close (until page reload)">✕</button></header>
+      <header><b class="wm">Evo&nbsp;Helper</b><i class="dia" aria-hidden="true"></i><a class="upd" id="fcevo-upd" href="${REPO_URL}" target="_blank" rel="noopener noreferrer" title="New version available — open GitHub" style="display:none"></a><span class="sp"></span><button data-act="settings" class="hbtn" title="Settings">⚙</button><button data-act="min" title="Collapse"><svg class="chev" viewBox="0 0 14 9" width="12" height="8" aria-hidden="true"><path d="M1 6.5L7 1.5L13 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button data-act="close" class="xbtn" title="Close (until page reload)">✕</button></header>
       <div class="setpanel" id="fcevo-settings" style="display:none">
         <label title="Add the player to each slot, then claim/finish it so the PlayStyle is locked in."><input type="checkbox" id="fcevo-claim" checked> claim &amp; finish</label>
         <label>delay <input type="number" id="fcevo-delay" value="300" min="200" step="100" style="width:54px"> ms</label>
         <label title="When on, the panel loads collapsed each time you open the web app."><input type="checkbox" id="fcevo-startmin"> start minimized</label>
+        <div class="setfoot">v${VERSION} · <a href="${REPO_URL}" target="_blank" rel="noopener noreferrer">GitHub&nbsp;↗</a></div>
       </div>
       <div class="modetabs">
         <button data-mode="single" class="on">Single</button>
@@ -1068,6 +1077,30 @@
     });
     log("Ready.", "head");
     if (ELIGIBLE_RARITIES.length) log("Search limited to " + ELIGIBLE_RARITIES.length + " eligible rarities (adjust via Rarity ▾).", "dim");
+    checkForUpdate();
+  }
+
+  // Compare dotted versions: 1 if a>b, -1 if a<b, 0 equal.
+  function cmpVer(a, b) {
+    const pa = String(a).split("."), pb = String(b).split(".");
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const x = +pa[i] || 0, y = +pb[i] || 0;
+      if (x !== y) return x > y ? 1 : -1;
+    }
+    return 0;
+  }
+  // Reveal the header "update available" badge if main's @version is newer than
+  // what's running. Best-effort, non-blocking; silent on any failure.
+  function checkForUpdate() {
+    fetch(RAW_MAIN_URL + "?t=" + Date.now()).then((r) => r.text()).then((t) => {
+      const m = t.match(/@version\s+([0-9.]+)/);
+      if (!m || cmpVer(m[1], VERSION) <= 0) return;
+      const el = document.getElementById("fcevo-upd");
+      if (!el) return;
+      el.textContent = "⬆ " + m[1];
+      el.href = REPO_URL + "/releases";
+      el.style.display = "";
+    }).catch(() => {});
   }
 
   function onClick(e) {
@@ -1945,7 +1978,7 @@ function bindQueueEvents() {
       savePrefs({ pos: { left: el.style.left, top: el.style.top } });
     };
     handle.addEventListener("mousedown", (e) => {
-      if (e.target.tagName === "BUTTON") return;
+      if (e.target.tagName === "BUTTON" || e.target.closest("a")) return;
       sx = e.clientX; sy = e.clientY;
       const r = el.getBoundingClientRect(); ox = r.left; oy = r.top;
       el.style.right = "auto"; el.style.left = ox + "px"; el.style.top = oy + "px"; e.preventDefault();
