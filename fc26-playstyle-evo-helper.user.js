@@ -42,11 +42,9 @@
   const REPO_URL = "https://github.com/nezygis/fc26-playstyle-evo-helper";
   // Clicking this opens the raw userscript, which Tampermonkey shows as an install/update page.
   const INSTALL_URL = "https://raw.githubusercontent.com/nezygis/fc26-playstyle-evo-helper/main/fc26-playstyle-evo-helper.user.js";
-  // Small JSON I can edit to broadcast a notice to everyone without shipping a new build:
+  // Small JSON I can edit to broadcast a notice without shipping a new build.
   //   { "version": "2.1.4", "title": "Heads up", "body": "Your message here.", "url": "https://…", "linkText": "Open" }
-  // version → small "update" badge in the header; title/body → a centered popup;
-  // url + linkText → an optional link inside it. All text is rendered as plain text
-  // (no HTML). Leave fields blank for no notice.
+  // version → header "update" badge; title/body/link → a centered popup. Blank = nothing shown.
   const NOTICE_URL = "https://raw.githubusercontent.com/nezygis/fc26-playstyle-evo-helper/main/notice.json";
   // Anonymous, cookieless load ping (GoatCounter — no PII, no cookies). Uses the
   // no-JS pixel endpoint with our own path so it logs "tool loaded", not EA's pages.
@@ -1135,9 +1133,8 @@
         const bEl = document.getElementById("fcevo-notice-body");
         const lEl = document.getElementById("fcevo-notice-link");
         if (!box || !tEl || !bEl) return;
-        tEl.textContent = title; // plain text (no HTML) — safe
-        bEl.textContent = body;  // plain text (no HTML) — safe
-        // Optional link preset: shows a link with your label when a URL is set.
+        tEl.textContent = title;
+        bEl.textContent = body;
         if (lEl) {
           if (n.url) { lEl.textContent = ((n.linkText || "Open").trim()) + " ↗"; lEl.href = n.url; lEl.style.display = ""; }
           else { lEl.style.display = "none"; }
