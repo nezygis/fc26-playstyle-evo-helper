@@ -43,7 +43,7 @@
   // Clicking this opens the raw userscript, which Tampermonkey shows as an install/update page.
   const INSTALL_URL = "https://raw.githubusercontent.com/nezygis/fc26-playstyle-evo-helper/main/fc26-playstyle-evo-helper.user.js";
   // Small JSON I can edit to broadcast a notice to everyone without shipping a new build:
-  //   { "version": "2.1.4", "title": "Heads up", "body": "Short description here.", "url": "https://…" }
+  //   { "version": "2.1.4", "title": "Heads up", "body": "Your message here.", "url": "https://…" }
   // version → small "update" badge in the header; title/body → a centered popup
   // (the title links to `url` when set). Leave fields blank for no notice.
   const NOTICE_URL = "https://raw.githubusercontent.com/nezygis/fc26-playstyle-evo-helper/main/notice.json";
@@ -1125,7 +1125,7 @@
       // A newer version → small "click to update" badge in the header (links to
       // the raw userscript on GitHub, which Tampermonkey opens as an update page).
       if (update) { const b = document.getElementById("fcevo-upd"); if (b) { b.textContent = "⬆ v" + n.version; b.style.display = ""; } }
-      // A custom title/body → centered dismissible popup (e.g. an optional announcement).
+      // A custom title/body → centered dismissible popup (an optional announcement).
       if (title || body) {
         const id = "msg|" + title + "|" + body; // remember dismissal per message
         try { if (localStorage.getItem("fcevo:notice-seen") === id) return; } catch (_) {}
