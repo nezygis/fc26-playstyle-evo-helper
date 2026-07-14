@@ -436,6 +436,16 @@
     };
     // First page alone so an app-not-ready failure propagates to the retry wrapper.
     let done = add(await fetchPage(0)) < PAGE;
+    // Player names aren't in the search result — they're attached from a separate
+    // definitions store a beat later. On a slow/cold start the search can return
+    // items before names exist, which would render (and stay) a nameless club that
+    // a plain reload can't fix. Require most of the first page to resolve a name;
+    // if not, throw so the retry wrapper waits and re-tries until names are present.
+    const hasName = (it) => { try { const sd = it.getStaticData && it.getStaticData(); return !!(sd && sd.name); } catch (_) { return false; } };
+    if (all.length) {
+      const named = all.reduce((n, it) => n + (hasName(it) ? 1 : 0), 0);
+      if (named < Math.ceil(all.length * 0.9)) throw new Error("player names loading (" + named + "/" + all.length + ")");
+    }
     let offset = PAGE, guard = 0;
     while (!done && guard++ < 40) {
       const offsets = [];
