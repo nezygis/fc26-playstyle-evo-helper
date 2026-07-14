@@ -737,13 +737,17 @@
     #fcevo header{display:flex;align-items:center;gap:9px;padding:12px 13px;background:var(--char);border-bottom:1px solid var(--line);cursor:move;user-select:none}
     #fcevo header .wm{font-weight:800;font-size:12px;letter-spacing:.16em;text-transform:uppercase}
     #fcevo header .dia{width:7px;height:7px;background:var(--acc);transform:rotate(45deg);display:inline-block}
-    /* floating dismissible popup — overlays the panel, doesn't shift layout */
-    #fcevo .notice{position:absolute;top:56px;left:10px;right:10px;z-index:9;display:flex;align-items:flex-start;gap:8px;
-      background:var(--acc);color:var(--acc-ink);padding:9px 10px;border-radius:6px;box-shadow:0 14px 34px -10px #000}
-    #fcevo .notice .notice-msg{flex:1;color:var(--acc-ink);text-decoration:none;font:700 12px/1.4 var(--grot)}
-    #fcevo .notice .notice-msg:hover{text-decoration:underline}
-    #fcevo .notice .notice-x{flex:none;background:transparent;border:0;color:var(--acc-ink);cursor:pointer;font:700 14px/1 var(--grot);padding:0 1px;opacity:.75}
-    #fcevo .notice .notice-x:hover{opacity:1}
+    /* small header "click to update" badge (shown when a newer version exists) */
+    #fcevo .upd{font:700 10px/1 var(--grot);color:var(--acc-ink);background:var(--acc);padding:3px 6px;border-radius:3px;text-decoration:none;white-space:nowrap;margin-left:4px}
+    #fcevo .upd:hover{filter:brightness(1.1)}
+    /* centered dismissible popup — for a custom broadcast message */
+    #fcevo .notice-overlay{position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(2,6,10,.66)}
+    #fcevo .notice-card{max-width:290px;display:flex;flex-direction:column;gap:13px;text-align:center;
+      background:var(--char);border:1px solid var(--acc);border-radius:10px;box-shadow:0 22px 54px -14px #000;padding:17px 16px 15px}
+    #fcevo .notice-card .notice-msg{color:var(--bone);text-decoration:none;font:700 14px/1.45 var(--grot)}
+    #fcevo .notice-card .notice-msg:hover{color:var(--acc);text-decoration:underline}
+    #fcevo .notice-card .notice-x{align-self:center;background:var(--acc);color:var(--acc-ink);border:0;border-radius:6px;padding:8px 18px;cursor:pointer;font:700 12px/1 var(--grot)}
+    #fcevo .notice-card .notice-x:hover{filter:brightness(1.08)}
     #fcevo header .sp{flex:1}
     #fcevo header button{background:transparent;color:var(--ash);border:1px solid var(--line2);width:26px;height:24px;padding:0;cursor:pointer;font:600 13px/1 var(--grot);display:flex;align-items:center;justify-content:center}
     #fcevo header button:hover{color:var(--ink);background:var(--acc);border-color:var(--acc)}
@@ -949,8 +953,8 @@
     const root = document.createElement("div");
     root.id = "fcevo";
     root.innerHTML = `
-      <header><b class="wm">Evo&nbsp;Helper</b><i class="dia" aria-hidden="true"></i><span class="sp"></span><button data-act="settings" class="hbtn" title="Settings">⚙</button><button data-act="min" title="Collapse"><svg class="chev" viewBox="0 0 14 9" width="12" height="8" aria-hidden="true"><path d="M1 6.5L7 1.5L13 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button data-act="close" class="xbtn" title="Close (until page reload)">✕</button></header>
-      <div class="notice" id="fcevo-notice" style="display:none"><a class="notice-msg" id="fcevo-notice-msg" target="_blank" rel="noopener noreferrer"></a><button class="notice-x" data-act="notice-hide" title="Dismiss">✕</button></div>
+      <header><b class="wm">Evo&nbsp;Helper</b><i class="dia" aria-hidden="true"></i><a class="upd" id="fcevo-upd" href="${INSTALL_URL}" target="_blank" rel="noopener noreferrer" title="New version available — click to update" style="display:none">⬆ update</a><span class="sp"></span><button data-act="settings" class="hbtn" title="Settings">⚙</button><button data-act="min" title="Collapse"><svg class="chev" viewBox="0 0 14 9" width="12" height="8" aria-hidden="true"><path d="M1 6.5L7 1.5L13 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button data-act="close" class="xbtn" title="Close (until page reload)">✕</button></header>
+      <div class="notice-overlay" id="fcevo-notice" data-act="notice-hide" style="display:none"><div class="notice-card"><a class="notice-msg" id="fcevo-notice-msg" target="_blank" rel="noopener noreferrer"></a><button class="notice-x" data-act="notice-hide">Got it</button></div></div>
       <div class="setpanel" id="fcevo-settings" style="display:none">
         <label title="Add the player to each slot, then claim/finish it so the PlayStyle is locked in."><input type="checkbox" id="fcevo-claim" checked> claim &amp; finish</label>
         <label>delay <input type="number" id="fcevo-delay" value="300" min="200" step="100" style="width:54px"> ms</label>
@@ -1112,17 +1116,21 @@
       if (!n) return;
       const update = n.version && cmpVer(n.version, VERSION) > 0;
       const msg = (n.message || "").trim();
-      if (!update && !msg) return; // nothing to say
-      const id = (n.version || "") + "|" + msg; // identity of this notice
-      try { if (localStorage.getItem("fcevo:notice-seen") === id) return; } catch (_) {} // dismissed already
-      const box = document.getElementById("fcevo-notice");
-      const link = document.getElementById("fcevo-notice-msg");
-      if (!box || !link) return;
-      link.textContent = update ? (msg ? "⬆ New version available — " + msg : "⬆ New version available — click to update")
-                                : msg;
-      link.href = n.url || INSTALL_URL; // custom link if given, else the Tampermonkey install page
-      box.dataset.noticeId = id;
-      box.style.display = "";
+      // A newer version → small "click to update" badge in the header (links to
+      // the raw userscript on GitHub, which Tampermonkey opens as an update page).
+      if (update) { const b = document.getElementById("fcevo-upd"); if (b) b.style.display = ""; }
+      // A custom message → centered dismissible popup (e.g. an optional announcement).
+      if (msg) {
+        const id = "msg|" + msg; // remember dismissal per message
+        try { if (localStorage.getItem("fcevo:notice-seen") === id) return; } catch (_) {}
+        const box = document.getElementById("fcevo-notice");
+        const link = document.getElementById("fcevo-notice-msg");
+        if (!box || !link) return;
+        link.textContent = msg;
+        link.href = n.url || INSTALL_URL; // custom link if given
+        box.dataset.noticeId = id;
+        box.style.display = "";
+      }
     }).catch(() => {});
   }
 
