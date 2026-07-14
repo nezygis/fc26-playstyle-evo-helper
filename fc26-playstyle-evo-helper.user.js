@@ -2005,11 +2005,13 @@ function bindQueueEvents() {
         if (!document.getElementById("fcevo")) build();
         window.FCEvo = { applyEvo, claimEvo, removeEvoUpgrade, removeLastEvo, canRemoveEvo, runBatch, runDispatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad, readAttrs, dumpEntity, openEntity, freshItemById, reloadAndReselect, setMode, autoResolveRole, suggestedSlots, toggleQueue, clearQueue, requestRun };
         // Wait until the active squad is loaded (app ready for club searches), then
-        // load the club. Hard fallback at 15s so it can't hang; retries cover the rest.
+        // load the club. The squad signal is unreliable (often never fires), so cap
+        // the wait at 4s and bail to the club load — its name-gate + retry safely
+        // handle "not ready yet" (throw → re-try), so there's no need to sit here.
         setClubStatus("Club: waiting for squad…", "load");
         let waited = 0;
         const checkSquad = () => {
-          if (squadReady() || waited >= 15000) { clearInterval(gate); startClubLoad(1); return; }
+          if (squadReady() || waited >= 4000) { clearInterval(gate); startClubLoad(1); return; }
           waited += 200;
         };
         const gate = setInterval(checkSquad, 200);
