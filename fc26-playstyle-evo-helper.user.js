@@ -737,8 +737,13 @@
     #fcevo header{display:flex;align-items:center;gap:9px;padding:12px 13px;background:var(--char);border-bottom:1px solid var(--line);cursor:move;user-select:none}
     #fcevo header .wm{font-weight:800;font-size:12px;letter-spacing:.16em;text-transform:uppercase}
     #fcevo header .dia{width:7px;height:7px;background:var(--acc);transform:rotate(45deg);display:inline-block}
-    #fcevo .notice{display:block;background:var(--acc);color:var(--acc-ink);text-decoration:none;font:700 12px/1.4 var(--grot);padding:8px 11px;border-radius:5px}
-    #fcevo .notice:hover{filter:brightness(1.08)}
+    /* floating dismissible popup — overlays the panel, doesn't shift layout */
+    #fcevo .notice{position:absolute;top:56px;left:10px;right:10px;z-index:9;display:flex;align-items:flex-start;gap:8px;
+      background:var(--acc);color:var(--acc-ink);padding:9px 10px;border-radius:6px;box-shadow:0 14px 34px -10px #000}
+    #fcevo .notice .notice-msg{flex:1;color:var(--acc-ink);text-decoration:none;font:700 12px/1.4 var(--grot)}
+    #fcevo .notice .notice-msg:hover{text-decoration:underline}
+    #fcevo .notice .notice-x{flex:none;background:transparent;border:0;color:var(--acc-ink);cursor:pointer;font:700 14px/1 var(--grot);padding:0 1px;opacity:.75}
+    #fcevo .notice .notice-x:hover{opacity:1}
     #fcevo header .sp{flex:1}
     #fcevo header button{background:transparent;color:var(--ash);border:1px solid var(--line2);width:26px;height:24px;padding:0;cursor:pointer;font:600 13px/1 var(--grot);display:flex;align-items:center;justify-content:center}
     #fcevo header button:hover{color:var(--ink);background:var(--acc);border-color:var(--acc)}
@@ -945,6 +950,7 @@
     root.id = "fcevo";
     root.innerHTML = `
       <header><b class="wm">Evo&nbsp;Helper</b><i class="dia" aria-hidden="true"></i><span class="sp"></span><button data-act="settings" class="hbtn" title="Settings">⚙</button><button data-act="min" title="Collapse"><svg class="chev" viewBox="0 0 14 9" width="12" height="8" aria-hidden="true"><path d="M1 6.5L7 1.5L13 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button data-act="close" class="xbtn" title="Close (until page reload)">✕</button></header>
+      <div class="notice" id="fcevo-notice" style="display:none"><a class="notice-msg" id="fcevo-notice-msg" target="_blank" rel="noopener noreferrer"></a><button class="notice-x" data-act="notice-hide" title="Dismiss">✕</button></div>
       <div class="setpanel" id="fcevo-settings" style="display:none">
         <label title="Add the player to each slot, then claim/finish it so the PlayStyle is locked in."><input type="checkbox" id="fcevo-claim" checked> claim &amp; finish</label>
         <label>delay <input type="number" id="fcevo-delay" value="300" min="200" step="100" style="width:54px"> ms</label>
@@ -956,7 +962,6 @@
         <button data-mode="auto">Bulk</button>
       </div>
       <div class="body">
-        <a class="notice" id="fcevo-notice" target="_blank" rel="noopener noreferrer" style="display:none"></a>
         <div class="sec">
           <h4><span class="ix">01</span> <span id="fcevo-pickhdr">Select from club</span></h4>
           <div class="row srow">
@@ -1108,13 +1113,16 @@
       const update = n.version && cmpVer(n.version, VERSION) > 0;
       const msg = (n.message || "").trim();
       if (!update && !msg) return; // nothing to say
-      const el = document.getElementById("fcevo-notice");
-      if (!el) return;
-      const text = update ? (msg ? "⬆ New version available — " + msg : "⬆ New version available — click to update")
-                          : msg;
-      el.textContent = text;
-      el.href = n.url || INSTALL_URL; // custom link if given, else the Tampermonkey install page
-      el.style.display = "";
+      const id = (n.version || "") + "|" + msg; // identity of this notice
+      try { if (localStorage.getItem("fcevo:notice-seen") === id) return; } catch (_) {} // dismissed already
+      const box = document.getElementById("fcevo-notice");
+      const link = document.getElementById("fcevo-notice-msg");
+      if (!box || !link) return;
+      link.textContent = update ? (msg ? "⬆ New version available — " + msg : "⬆ New version available — click to update")
+                                : msg;
+      link.href = n.url || INSTALL_URL; // custom link if given, else the Tampermonkey install page
+      box.dataset.noticeId = id;
+      box.style.display = "";
     }).catch(() => {});
   }
 
@@ -1141,6 +1149,11 @@
       return;
     }
     if (act === "close") { closeSettings(); closeRar(); els.root.remove(); return; }
+    if (act === "notice-hide") {
+      const box = document.getElementById("fcevo-notice");
+      if (box) { try { localStorage.setItem("fcevo:notice-seen", box.dataset.noticeId || "1"); } catch (_) {} box.style.display = "none"; }
+      return;
+    }
     if (act === "settings") { els.settings.style.display = els.settings.style.display === "none" ? "" : "none"; return; }
     if (act === "reloadclub") return startClubLoad(1, true);
     if (act === "rmevo") {
