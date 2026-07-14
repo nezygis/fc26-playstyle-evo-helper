@@ -40,7 +40,12 @@
   const SETTLE_MS = 700; // wait after an apply/remove for the server to commit before re-fetching (else stale card)
   const VERSION = "2.1.3"; // keep in sync with the @version header above
   const REPO_URL = "https://github.com/nezygis/fc26-playstyle-evo-helper";
-  const RAW_MAIN_URL = "https://raw.githubusercontent.com/nezygis/fc26-playstyle-evo-helper/main/fc26-playstyle-evo-helper.user.js";
+  // Clicking this opens the raw userscript, which Tampermonkey shows as an install/update page.
+  const INSTALL_URL = "https://raw.githubusercontent.com/nezygis/fc26-playstyle-evo-helper/main/fc26-playstyle-evo-helper.user.js";
+  // Small JSON I can edit to broadcast a notice to everyone without shipping a new build:
+  //   { "version": "2.1.4", "message": "Heads up", "url": "https://…" }
+  // Shows an in-panel banner when a newer version exists OR a message is set.
+  const NOTICE_URL = "https://raw.githubusercontent.com/nezygis/fc26-playstyle-evo-helper/main/notice.json";
   // Anonymous, cookieless load ping (GoatCounter — no PII, no cookies). Uses the
   // no-JS pixel endpoint with our own path so it logs "tool loaded", not EA's pages.
   // Dashboard: https://futhelper.goatcounter.com
@@ -732,8 +737,8 @@
     #fcevo header{display:flex;align-items:center;gap:9px;padding:12px 13px;background:var(--char);border-bottom:1px solid var(--line);cursor:move;user-select:none}
     #fcevo header .wm{font-weight:800;font-size:12px;letter-spacing:.16em;text-transform:uppercase}
     #fcevo header .dia{width:7px;height:7px;background:var(--acc);transform:rotate(45deg);display:inline-block}
-    #fcevo .upd{font:700 10px/1 var(--grot);color:var(--acc-ink);background:var(--acc);padding:3px 6px;border-radius:3px;text-decoration:none;white-space:nowrap;margin-left:2px}
-    #fcevo .upd:hover{filter:brightness(1.1)}
+    #fcevo .notice{display:block;background:var(--acc);color:var(--acc-ink);text-decoration:none;font:700 12px/1.4 var(--grot);padding:8px 11px;border-radius:5px}
+    #fcevo .notice:hover{filter:brightness(1.08)}
     #fcevo header .sp{flex:1}
     #fcevo header button{background:transparent;color:var(--ash);border:1px solid var(--line2);width:26px;height:24px;padding:0;cursor:pointer;font:600 13px/1 var(--grot);display:flex;align-items:center;justify-content:center}
     #fcevo header button:hover{color:var(--ink);background:var(--acc);border-color:var(--acc)}
@@ -939,7 +944,7 @@
     const root = document.createElement("div");
     root.id = "fcevo";
     root.innerHTML = `
-      <header><b class="wm">Evo&nbsp;Helper</b><i class="dia" aria-hidden="true"></i><a class="upd" id="fcevo-upd" href="${REPO_URL}" target="_blank" rel="noopener noreferrer" title="New version available — open GitHub" style="display:none"></a><span class="sp"></span><button data-act="settings" class="hbtn" title="Settings">⚙</button><button data-act="min" title="Collapse"><svg class="chev" viewBox="0 0 14 9" width="12" height="8" aria-hidden="true"><path d="M1 6.5L7 1.5L13 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button data-act="close" class="xbtn" title="Close (until page reload)">✕</button></header>
+      <header><b class="wm">Evo&nbsp;Helper</b><i class="dia" aria-hidden="true"></i><span class="sp"></span><button data-act="settings" class="hbtn" title="Settings">⚙</button><button data-act="min" title="Collapse"><svg class="chev" viewBox="0 0 14 9" width="12" height="8" aria-hidden="true"><path d="M1 6.5L7 1.5L13 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button data-act="close" class="xbtn" title="Close (until page reload)">✕</button></header>
       <div class="setpanel" id="fcevo-settings" style="display:none">
         <label title="Add the player to each slot, then claim/finish it so the PlayStyle is locked in."><input type="checkbox" id="fcevo-claim" checked> claim &amp; finish</label>
         <label>delay <input type="number" id="fcevo-delay" value="300" min="200" step="100" style="width:54px"> ms</label>
@@ -951,6 +956,7 @@
         <button data-mode="auto">Bulk</button>
       </div>
       <div class="body">
+        <a class="notice" id="fcevo-notice" target="_blank" rel="noopener noreferrer" style="display:none"></a>
         <div class="sec">
           <h4><span class="ix">01</span> <span id="fcevo-pickhdr">Select from club</span></h4>
           <div class="row srow">
@@ -1081,7 +1087,7 @@
     });
     log("Ready.", "head");
     if (ELIGIBLE_RARITIES.length) log("Search limited to " + ELIGIBLE_RARITIES.length + " eligible rarities (adjust via Rarity ▾).", "dim");
-    checkForUpdate();
+    checkNotice();
     try { new Image().src = METRICS_URL + "?p=/evo/load&t=" + encodeURIComponent("Evo Helper"); } catch (_) {} // anonymous cookieless load ping, best-effort
   }
 
@@ -1094,16 +1100,20 @@
     }
     return 0;
   }
-  // Reveal the header "update available" badge if main's @version is newer than
-  // what's running. Best-effort, non-blocking; silent on any failure.
-  function checkForUpdate() {
-    fetch(RAW_MAIN_URL + "?t=" + Date.now()).then((r) => r.text()).then((t) => {
-      const m = t.match(/@version\s+([0-9.]+)/);
-      if (!m || cmpVer(m[1], VERSION) <= 0) return;
-      const el = document.getElementById("fcevo-upd");
+  // Fetch notice.json and show an in-panel banner when a newer version is out
+  // and/or a custom message is set. Best-effort, non-blocking, silent on failure.
+  function checkNotice() {
+    fetch(NOTICE_URL + "?t=" + Date.now()).then((r) => r.json()).then((n) => {
+      if (!n) return;
+      const update = n.version && cmpVer(n.version, VERSION) > 0;
+      const msg = (n.message || "").trim();
+      if (!update && !msg) return; // nothing to say
+      const el = document.getElementById("fcevo-notice");
       if (!el) return;
-      el.textContent = "⬆ " + m[1];
-      el.href = REPO_URL + "/releases";
+      const text = update ? (msg ? "⬆ New version available — " + msg : "⬆ New version available — click to update")
+                          : msg;
+      el.textContent = text;
+      el.href = n.url || INSTALL_URL; // custom link if given, else the Tampermonkey install page
       el.style.display = "";
     }).catch(() => {});
   }
