@@ -436,16 +436,6 @@
     };
     // First page alone so an app-not-ready failure propagates to the retry wrapper.
     let done = add(await fetchPage(0)) < PAGE;
-    // Player names aren't in the search result — they're attached from a separate
-    // definitions store a beat later. On a slow/cold start the search can return
-    // items before names exist, which would render (and stay) a nameless club that
-    // a plain reload can't fix. Require most of the first page to resolve a name;
-    // if not, throw so the retry wrapper waits and re-tries until names are present.
-    const hasName = (it) => { try { const sd = it.getStaticData && it.getStaticData(); return !!(sd && sd.name); } catch (_) { return false; } };
-    if (all.length) {
-      const named = all.reduce((n, it) => n + (hasName(it) ? 1 : 0), 0);
-      if (named < Math.ceil(all.length * 0.9)) throw new Error("player names loading (" + named + "/" + all.length + ")");
-    }
     let offset = PAGE, guard = 0;
     while (!done && guard++ < 40) {
       const offsets = [];
@@ -2005,13 +1995,11 @@ function bindQueueEvents() {
         if (!document.getElementById("fcevo")) build();
         window.FCEvo = { applyEvo, claimEvo, removeEvoUpgrade, removeLastEvo, canRemoveEvo, runBatch, runDispatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad, readAttrs, dumpEntity, openEntity, freshItemById, reloadAndReselect, setMode, autoResolveRole, suggestedSlots, toggleQueue, clearQueue, requestRun };
         // Wait until the active squad is loaded (app ready for club searches), then
-        // load the club. The squad signal is unreliable (often never fires), so cap
-        // the wait at 4s and bail to the club load — its name-gate + retry safely
-        // handle "not ready yet" (throw → re-try), so there's no need to sit here.
+        // load the club. Hard fallback at 15s so it can't hang; retries cover the rest.
         setClubStatus("Club: waiting for squad…", "load");
         let waited = 0;
         const checkSquad = () => {
-          if (squadReady() || waited >= 4000) { clearInterval(gate); startClubLoad(1); return; }
+          if (squadReady() || waited >= 15000) { clearInterval(gate); startClubLoad(1); return; }
           waited += 200;
         };
         const gate = setInterval(checkSquad, 200);
