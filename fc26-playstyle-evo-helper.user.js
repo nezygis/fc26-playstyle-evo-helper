@@ -37,6 +37,7 @@
   "use strict";
 
   const CAP_PLUS = 3, CAP_BASIC = 8, TRAIT_OFFSET = 301; // traitId = rewardId - 301 (icon classes run 0..35)
+  const SETTLE_MS = 700; // wait after an apply/remove for the server to commit before re-fetching (else stale card)
   // Glory Hunters cards (Festival of Football rarity 109, or 104 "Red") can hold a
   // 4th PS+ via account-specific reward evos — everyone else caps at 3.
   const GH_RARITIES = new Set([104, 109]);
@@ -173,6 +174,11 @@
   }
   const applyEvo = (slotId, itemId) => svcObserve(ACAD().addItemToSlot(slotId, itemId, undefined));
   const claimEvo = (slotId) => svcObserve(ACAD().claimSlot(slotId));
+  // Undo: EA's own "remove evo" — strips the most recently applied PlayStyle upgrade
+  // from a player. Repeatable; when the last upgrade is removed the player reverts.
+  const removeEvoUpgrade = (itemId) => svcObserve(ACAD().removeEvoUpgrade(itemId));
+  const evoRemovalEnabled = () => { try { return !!ACAD().isFeatureEnabled(); } catch (_) { return false; } };
+  const canRemoveEvo = (it) => { try { return !!(it && it.canRemoveEvolution && it.canRemoveEvolution()); } catch (_) { return false; } };
 
   const acadRepo = () => { try { return window.repositories.Academy; } catch (_) { return null; } };
   const getSlot = (id) => { try { return acadRepo().getSlotById(Number(id)); } catch (_) { return null; } };
@@ -297,6 +303,7 @@
     // In-place read can still be stale — EA only reflects an applied evo after a
     // server re-fetch. Reload so the new playstyles actually show.
     if (ok > 0) {
+      await sleep(SETTLE_MS);
       try { await reloadAndReselect(itemId); } catch (_) {}
       renderPreview(); renderGrid(); updateCount();
     }
@@ -326,6 +333,7 @@
     }
     refreshClub();
     if (totalOk > 0) {
+      await sleep(SETTLE_MS);
       const focusId = state.item ? state.item.id : entries[0].item.id;
       try { await reloadAndReselect(focusId); } catch (_) {}
     }
@@ -340,8 +348,12 @@
   // the club/squad item entities).
   function refreshClub() {
     try {
-      const pile = (window.ItemPile && window.ItemPile.CLUB != null) ? window.ItemPile.CLUB : 7;
-      window.repositories.Item.setDirty(pile);
+      const P = window.ItemPile || {};
+      // Mark the club AND squad-side piles dirty so every view (club list, Active
+      // Squad, player menus) re-fetches — not just the club grid.
+      const piles = [P.CLUB != null ? P.CLUB : 7, P.ACTIVE_SQUAD, P.DEVELOPMENT, P.RESERVES, P.SBC_STORAGE]
+        .filter((v) => v != null);
+      piles.forEach((p) => { try { window.repositories.Item.setDirty(p); } catch (_) {} });
       window.repositories.Academy.requiresHubCall = true;
     } catch (_) {}
   }
@@ -491,13 +503,38 @@
     try {
       const n = await loadClub(rarities);
       setClubStatus("Club: " + n + " players loaded" + (rarities ? " (eligible)" : "") + " · click to reload", "ok");
-      const again = findItemById(itemId);
+      // Prefer the reloaded club copy; fall back to the live entity (open detail
+      // panel / game club repo) in case the evolved card's rarity changed and it
+      // fell outside the eligible-rarity filter used for the reload.
+      const again = findItemById(itemId) || freshItemById(itemId);
       if (again) state.item = again;
       return true;
     } catch (e) {
       setClubStatus("Club: refresh failed (" + errMsg(e) + ") — click to reload", "err");
       return false;
     }
+  }
+  // Remove the most recently applied evo upgrade from the selected player, then
+  // refresh so the reverted card shows. Repeatable until the player is fully reverted.
+  async function removeLastEvo() {
+    const it = state.item;
+    if (!it) return log("✋ Select a player first.", "warn");
+    if (!canRemoveEvo(it)) return log("✋ No evolution to remove on this player.", "warn");
+    if (state.running) return;
+    const itemId = it.id, name = playerName(it);
+    state.running = true; state.abort = false; setRunning(true);
+    log(`▶ Removing last evo from ${name}…`, "head");
+    try {
+      await removeEvoUpgrade(itemId);
+      refreshClub();
+      await sleep(SETTLE_MS);
+      try { await reloadAndReselect(itemId); } catch (_) {}
+      renderPreview(); renderGrid(); updateCount();
+      log(`■ Removed last evo from ${name}.`, "ok");
+    } catch (e) {
+      log(`✗ Remove failed — ${errMsg(e)}`, "err");
+    }
+    state.running = false; setRunning(false);
   }
   function playerName(it) {
     try { const sd = it.getStaticData ? it.getStaticData() : it._staticData; if (sd && sd.name) return sd.name; } catch (_) {}
@@ -689,8 +726,9 @@
     #fcevo header .wm{font-weight:800;font-size:12px;letter-spacing:.16em;text-transform:uppercase}
     #fcevo header .dia{width:7px;height:7px;background:var(--acc);transform:rotate(45deg);display:inline-block}
     #fcevo header .sp{flex:1}
-    #fcevo header button{background:transparent;color:var(--ash);border:1px solid var(--line2);padding:4px 9px;cursor:pointer;font:600 11px/1 var(--mono);display:flex;align-items:center}
+    #fcevo header button{background:transparent;color:var(--ash);border:1px solid var(--line2);width:26px;height:24px;padding:0;cursor:pointer;font:600 13px/1 var(--grot);display:flex;align-items:center;justify-content:center}
     #fcevo header button:hover{color:var(--ink);background:var(--acc);border-color:var(--acc)}
+    #fcevo header button[data-act="close"]:hover{color:#160b09;background:var(--bad);border-color:var(--bad)}
     #fcevo .chev{pointer-events:none;transform:rotate(0);transition:transform .32s cubic-bezier(.2,.7,.2,1)}
     #fcevo .setpanel{position:absolute;top:44px;right:12px;z-index:6;background:var(--char);border:1px solid var(--line2);padding:10px 12px;display:flex;flex-direction:column;gap:9px;box-shadow:0 16px 38px -14px #000;font:11px/1.3 var(--mono);color:var(--ash);text-transform:uppercase;letter-spacing:.06em}
     #fcevo .setpanel label{display:flex;align-items:center;gap:7px;white-space:nowrap;cursor:pointer}
@@ -698,7 +736,10 @@
     #fcevo .setpanel input[type=number]{font-family:var(--mono);background:var(--ink);color:var(--bone);border:1px solid var(--line2);padding:2px 4px}
     #fcevo.min .chev{transform:rotate(180deg)}
     #fcevo .body{padding:11px 13px;overflow:auto;display:flex;flex-direction:column;gap:10px}
-    #fcevo.min .body{display:none}
+    /* collapsed = just the title bar: no body, no mode tabs, shrink to content width */
+    #fcevo.min{width:auto}
+    #fcevo.min .body,#fcevo.min .modetabs{display:none}
+    #fcevo.min header{border-bottom:0}
     #fcevo input,#fcevo select{background:var(--ink);border:1px solid var(--line2);color:var(--bone);border-radius:0;padding:6px 8px;font:11px/1.3 var(--grot);accent-color:var(--acc)}
     #fcevo input:focus,#fcevo select:focus{outline:none;border-color:var(--acc)}
     #fcevo input::placeholder{color:var(--ash)}
@@ -742,6 +783,16 @@
     #fcevo .cap:last-child{border-right:0}
     #fcevo .cap b{font:800 17px/1 var(--grot);font-variant-numeric:tabular-nums}#fcevo .cap.full b{color:var(--bad)}
     #fcevo .cap small{color:var(--ash);display:block;font:10.5px/1.5 var(--grot)}
+    /* face-stat strip (PAC/SHO/… or GK DIV/HAN/…) shown on a selected/queued player */
+    #fcevo .statrow{display:flex;gap:0;margin-top:10px;border:1px solid var(--line)}
+    #fcevo .statrow .stat{flex:1;text-align:center;padding:5px 2px;border-right:1px solid var(--line);min-width:0}
+    #fcevo .statrow .stat:last-child{border-right:0}
+    #fcevo .statrow .stat b{display:block;font:800 14px/1 var(--grot);color:var(--bone);font-variant-numeric:tabular-nums}
+    #fcevo .statrow .stat small{display:block;font-size:9.5px;color:var(--ash);margin-top:3px}
+    #fcevo .statrow .stat.hi b{color:var(--good)}
+    #fcevo .statrow .stat.lo b{color:var(--ash)}
+    #fcevo .qi .statrow{margin-top:7px}
+    #fcevo .qi .statrow .stat b{font-size:12.5px}
     #fcevo .modetabs{display:flex;gap:0;padding:0 12px;border-bottom:1px solid var(--line);background:var(--char)}
     #fcevo .modetabs button{flex:1;background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ash);padding:9px 6px;cursor:pointer;
       font:700 11px/1 var(--grot);text-transform:uppercase;letter-spacing:.16em;margin-bottom:-1px}
@@ -851,6 +902,9 @@
     #fcevo .mini{background:transparent;color:var(--ash);border:1px solid var(--line2);border-radius:0;padding:6px 9px;cursor:pointer;
       font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;white-space:nowrap}
     #fcevo .mini:hover{color:var(--bone);border-color:var(--ash)}
+    #fcevo .mini.rmevo{color:var(--bad);border-color:#5a2b24}
+    #fcevo .mini.rmevo:hover{color:#160b09;background:var(--bad);border-color:var(--bad)}
+    #fcevo .mini.armed{color:#211803;background:var(--warn);border-color:var(--warn)}
     #fcevo .status{font:12px/1.4 var(--grot);color:var(--ash);padding:3px 0 2px;min-height:18px;white-space:normal;overflow-wrap:anywhere}
     #fcevo .status.ok{color:var(--good)}#fcevo .status.err{color:var(--bad)}#fcevo .status.warn{color:var(--warn)}#fcevo .status.head{color:var(--acc)}#fcevo .status.dim{color:var(--ash)}
     #fcevo .count{color:var(--bone);font-weight:700;font-variant-numeric:tabular-nums}#fcevo .count.over{color:var(--bad)}#fcevo .muted{color:var(--ash)}
@@ -873,7 +927,7 @@
     const root = document.createElement("div");
     root.id = "fcevo";
     root.innerHTML = `
-      <header><b class="wm">Evo&nbsp;Helper</b><i class="dia" aria-hidden="true"></i><span class="sp"></span><button data-act="settings" class="hbtn" title="Settings">⚙</button><button data-act="min" title="Collapse"><svg class="chev" viewBox="0 0 14 9" width="12" height="8" aria-hidden="true"><path d="M1 6.5L7 1.5L13 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></header>
+      <header><b class="wm">Evo&nbsp;Helper</b><i class="dia" aria-hidden="true"></i><span class="sp"></span><button data-act="settings" class="hbtn" title="Settings">⚙</button><button data-act="min" title="Collapse"><svg class="chev" viewBox="0 0 14 9" width="12" height="8" aria-hidden="true"><path d="M1 6.5L7 1.5L13 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button data-act="close" class="xbtn" title="Close (until page reload)">✕</button></header>
       <div class="setpanel" id="fcevo-settings" style="display:none">
         <label title="Add the player to each slot, then claim/finish it so the PlayStyle is locked in."><input type="checkbox" id="fcevo-claim" checked> claim &amp; finish</label>
         <label>delay <input type="number" id="fcevo-delay" value="300" min="200" step="100" style="width:54px"> ms</label>
@@ -1022,9 +1076,32 @@
     const m = e.target.getAttribute("data-mode");
     if (m) return setMode(m);
     if (t) return setTab(t);
-    if (act === "min") { const mn = els.root.classList.toggle("min"); e.target.closest("button").title = mn ? "Expand" : "Collapse"; if (mn) closeSettings(); return; }
+    if (act === "min") {
+      const r = els.root, rect = r.getBoundingClientRect(); // capture edges before the width changes
+      const mn = r.classList.toggle("min");
+      if (mn) {
+        // Pin the right edge so collapsing shrinks leftward and the header buttons
+        // stay exactly where they were (no flicker). Remember the expanded anchors.
+        r.dataset.exLeft = r.style.left || ""; r.dataset.exRight = r.style.right || "";
+        r.style.left = "auto";
+        r.style.right = Math.max(4, Math.round(window.innerWidth - rect.right)) + "px";
+        closeSettings();
+      } else {
+        r.style.left = r.dataset.exLeft || ""; r.style.right = r.dataset.exRight || "";
+      }
+      e.target.closest("button").title = mn ? "Expand" : "Collapse";
+      return;
+    }
+    if (act === "close") { closeSettings(); closeRar(); els.root.remove(); return; }
     if (act === "settings") { els.settings.style.display = els.settings.style.display === "none" ? "" : "none"; return; }
     if (act === "reloadclub") return startClubLoad(1, true);
+    if (act === "rmevo") {
+      const b = e.target.closest("button"); if (!b) return;
+      if (b.dataset.armed === "1") { b.dataset.armed = ""; return removeLastEvo(); }
+      b.dataset.armed = "1"; b.textContent = "Confirm remove?"; b.classList.add("armed");
+      setTimeout(() => { if (b && b.dataset.armed === "1") { b.dataset.armed = ""; b.textContent = "Remove last evo"; b.classList.remove("armed"); } }, 3500);
+      return;
+    }
     if (act === "rar") return toggleRarPanel();
     if (act === "suggest") return suggest();
     if (act === "none") { current().forEach((x) => state.selected.delete(x.s)); return (renderGrid(), updateCount()); }
@@ -1264,6 +1341,10 @@
       if (!evo) { skip.push(name); return; }
       if (evo.g && !gk) { skip.push(name + " (GK-only)"); return; }
       if (hasEvo(it, evo)) { owned++; return; }
+      // Mutual exclusivity: a base PlayStyle the player already has as PS+ (e.g. a
+      // 4th-PS+ from a prior evo) can't be applied — the + already covers it. The grid
+      // blocks this; Suggest must too, or it preselects an impossible pick.
+      if (evo.kind === "PS") { let po = false; try { po = !!it.hasPlusPlayStyle(evoTrait(evo)); } catch (_) {} if (po) { owned++; return; } }
       if (wantPlus) { if (plusUsed >= CAP_PLUS) { skip.push(name + "+ (no room)"); return; } plusUsed++; }
       else { if (baseUsed >= CAP_BASIC) { skip.push(name + " (no room)"); return; } baseUsed++; }
       slots.push(evo.s);
@@ -1301,6 +1382,19 @@
   // --- Auto (bulk) mode: resolver + checklist + direct apply ------------------
   // attributes = [pace, shooting, passing, dribbling, defending, physical]
   const ATT = (it, i) => { try { const a = (it.getAttributes && it.getAttributes()) || it.attributes; return a && a[i] != null ? +a[i] : null; } catch (_) { return null; } };
+  // The six face stats as a compact strip, to eyeball before picking PlayStyles.
+  // GKs report a different set (DIV/HAN/KIC/REF/SPD/POS) in the same 6 slots.
+  const FACE_LABELS = ["PAC", "SHO", "PAS", "DRI", "DEF", "PHY"];
+  const GK_LABELS = ["DIV", "HAN", "KIC", "REF", "SPD", "POS"];
+  function statRow(it) {
+    const labels = isGKItem(it) ? GK_LABELS : FACE_LABELS;
+    const cells = labels.map((lab, i) => {
+      const v = ATT(it, i);
+      const tier = v == null ? "" : v >= 85 ? "hi" : v >= 70 ? "mid" : "lo";
+      return `<div class="stat ${tier}"><b>${v ?? "—"}</b><small>${lab}</small></div>`;
+    }).join("");
+    return `<div class="statrow">${cells}</div>`;
+  }
   const DEFAULT_ROLE = {
     "ST": "Advanced Forward", "RW / LW": "Inside Forward", "RM / LM": "Inside Forward",
     "CAM": "Shadow Striker", "CM": "Box to Box", "CDM": "Deep Lying Playmaker",
@@ -1482,6 +1576,8 @@
             <div class="qps">
                 ${chips}
             </div>
+
+            ${statRow(it)}
 
         </div>
     `;
@@ -1691,6 +1787,7 @@ function bindQueueEvents() {
           <div class="muted">${esc(rarityName(it))}</div>
         </div>
       </div>
+      ${statRow(it)}
       <div class="caps">
         <div class="cap ${plusFull ? "full" : ""}"><b>${np ?? "?"}/${cp}</b><small>PS+ used</small></div>
         <div class="cap ${basicFull ? "full" : ""}"><b>${nb ?? "?"}/${CAP_BASIC}</b><small>Basic used</small></div>
@@ -1698,7 +1795,10 @@ function bindQueueEvents() {
       <div class="psrow">${currentPlayStyles(it).map((p) => {
         const nm = traitName[p.traitId] || ("trait " + p.traitId);
         return `<div class="chip ${p.isIcon ? "ic" : ""}" data-ini="${esc(initials(nm))}" data-tip="${esc(dispName(nm))}${p.isIcon ? " +" : ""}|${esc(psDesc(nm))}"><i class="${iconClass(p.isIcon, p.traitId)}"></i></div>`;
-      }).join("") || '<span class="muted">no playstyles</span>'}</div>`;
+      }).join("") || '<span class="muted">no playstyles</span>'}</div>` +
+      (canRemoveEvo(it) && evoRemovalEnabled()
+        ? `<div class="row" style="margin-top:9px;justify-content:flex-end"><button class="mini rmevo" data-act="rmevo" data-tip="Remove last evo|Removes the most recently applied PlayStyle upgrade from this player (EA's own evo-removal). Repeatable — click again to remove the next. Click once to arm, again to confirm.">Remove last evo</button></div>`
+        : "");
     markGlyphs();
   }
 
@@ -1893,7 +1993,7 @@ function bindQueueEvents() {
       if (ACAD() && CLUB()) {
         clearInterval(iv);
         if (!document.getElementById("fcevo")) build();
-        window.FCEvo = { applyEvo, claimEvo, runBatch, runDispatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad, readAttrs, dumpEntity, openEntity, freshItemById, reloadAndReselect, setMode, autoResolveRole, suggestedSlots, toggleQueue, clearQueue, requestRun };
+        window.FCEvo = { applyEvo, claimEvo, removeEvoUpgrade, removeLastEvo, canRemoveEvo, runBatch, runDispatch, state, PS, PSP, clubPlayers, selectPlayer, scrapeRarities, clubRaritiesDump, eligibleRarities, loadClub, startClubLoad, readAttrs, dumpEntity, openEntity, freshItemById, reloadAndReselect, setMode, autoResolveRole, suggestedSlots, toggleQueue, clearQueue, requestRun };
         // Wait until the active squad is loaded (app ready for club searches), then
         // load the club. Hard fallback at 15s so it can't hang; retries cover the rest.
         setClubStatus("Club: waiting for squad…", "load");
