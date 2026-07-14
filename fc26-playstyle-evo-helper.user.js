@@ -1118,7 +1118,7 @@
       const msg = (n.message || "").trim();
       // A newer version → small "click to update" badge in the header (links to
       // the raw userscript on GitHub, which Tampermonkey opens as an update page).
-      if (update) { const b = document.getElementById("fcevo-upd"); if (b) b.style.display = ""; }
+      if (update) { const b = document.getElementById("fcevo-upd"); if (b) { b.textContent = "⬆ v" + n.version; b.style.display = ""; } }
       // A custom message → centered dismissible popup (e.g. an optional announcement).
       if (msg) {
         const id = "msg|" + msg; // remember dismissal per message
