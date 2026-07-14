@@ -43,8 +43,9 @@
   // Clicking this opens the raw userscript, which Tampermonkey shows as an install/update page.
   const INSTALL_URL = "https://raw.githubusercontent.com/nezygis/fc26-playstyle-evo-helper/main/fc26-playstyle-evo-helper.user.js";
   // Small JSON I can edit to broadcast a notice to everyone without shipping a new build:
-  //   { "version": "2.1.4", "message": "Heads up", "url": "https://…" }
-  // Shows an in-panel banner when a newer version exists OR a message is set.
+  //   { "version": "2.1.4", "title": "Heads up", "body": "Short description here.", "url": "https://…" }
+  // version → small "update" badge in the header; title/body → a centered popup
+  // (the title links to `url` when set). Leave fields blank for no notice.
   const NOTICE_URL = "https://raw.githubusercontent.com/nezygis/fc26-playstyle-evo-helper/main/notice.json";
   // Anonymous, cookieless load ping (GoatCounter — no PII, no cookies). Uses the
   // no-JS pixel endpoint with our own path so it logs "tool loaded", not EA's pages.
@@ -744,8 +745,12 @@
     #fcevo .notice-overlay{position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(2,6,10,.66)}
     #fcevo .notice-card{max-width:290px;display:flex;flex-direction:column;gap:13px;text-align:center;
       background:var(--char);border:1px solid var(--acc);border-radius:10px;box-shadow:0 22px 54px -14px #000;padding:17px 16px 15px}
-    #fcevo .notice-card .notice-msg{color:var(--bone);text-decoration:none;font:700 14px/1.45 var(--grot)}
-    #fcevo .notice-card .notice-msg:hover{color:var(--acc);text-decoration:underline}
+    #fcevo .notice-card .notice-title{color:var(--bone);text-decoration:none;font:800 15px/1.3 var(--grot)}
+    #fcevo .notice-card .notice-title:empty{display:none}
+    #fcevo .notice-card .notice-title[href]{color:var(--acc)}
+    #fcevo .notice-card .notice-title[href]:hover{text-decoration:underline}
+    #fcevo .notice-card .notice-body{color:var(--ash);font:400 12.5px/1.5 var(--grot)}
+    #fcevo .notice-card .notice-body:empty{display:none}
     #fcevo .notice-card .notice-x{align-self:center;background:var(--acc);color:var(--acc-ink);border:0;border-radius:6px;padding:8px 18px;cursor:pointer;font:700 12px/1 var(--grot)}
     #fcevo .notice-card .notice-x:hover{filter:brightness(1.08)}
     #fcevo header .sp{flex:1}
@@ -954,7 +959,7 @@
     root.id = "fcevo";
     root.innerHTML = `
       <header><b class="wm">Evo&nbsp;Helper</b><i class="dia" aria-hidden="true"></i><a class="upd" id="fcevo-upd" href="${INSTALL_URL}" target="_blank" rel="noopener noreferrer" title="New version available — click to update" style="display:none">⬆ update</a><span class="sp"></span><button data-act="settings" class="hbtn" title="Settings">⚙</button><button data-act="min" title="Collapse"><svg class="chev" viewBox="0 0 14 9" width="12" height="8" aria-hidden="true"><path d="M1 6.5L7 1.5L13 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button data-act="close" class="xbtn" title="Close (until page reload)">✕</button></header>
-      <div class="notice-overlay" id="fcevo-notice" data-act="notice-hide" style="display:none"><div class="notice-card"><a class="notice-msg" id="fcevo-notice-msg" target="_blank" rel="noopener noreferrer"></a><button class="notice-x" data-act="notice-hide">Got it</button></div></div>
+      <div class="notice-overlay" id="fcevo-notice" data-act="notice-hide" style="display:none"><div class="notice-card"><a class="notice-title" id="fcevo-notice-title" target="_blank" rel="noopener noreferrer"></a><div class="notice-body" id="fcevo-notice-body"></div><button class="notice-x" data-act="notice-hide">Got it</button></div></div>
       <div class="setpanel" id="fcevo-settings" style="display:none">
         <label title="Add the player to each slot, then claim/finish it so the PlayStyle is locked in."><input type="checkbox" id="fcevo-claim" checked> claim &amp; finish</label>
         <label>delay <input type="number" id="fcevo-delay" value="300" min="200" step="100" style="width:54px"> ms</label>
@@ -1115,19 +1120,22 @@
     fetch(NOTICE_URL + "?t=" + Date.now()).then((r) => r.json()).then((n) => {
       if (!n) return;
       const update = n.version && cmpVer(n.version, VERSION) > 0;
-      const msg = (n.message || "").trim();
+      const title = (n.title || "").trim();
+      const body = (n.body || n.message || "").trim();
       // A newer version → small "click to update" badge in the header (links to
       // the raw userscript on GitHub, which Tampermonkey opens as an update page).
       if (update) { const b = document.getElementById("fcevo-upd"); if (b) { b.textContent = "⬆ v" + n.version; b.style.display = ""; } }
-      // A custom message → centered dismissible popup (e.g. an optional announcement).
-      if (msg) {
-        const id = "msg|" + msg; // remember dismissal per message
+      // A custom title/body → centered dismissible popup (e.g. an optional announcement).
+      if (title || body) {
+        const id = "msg|" + title + "|" + body; // remember dismissal per message
         try { if (localStorage.getItem("fcevo:notice-seen") === id) return; } catch (_) {}
         const box = document.getElementById("fcevo-notice");
-        const link = document.getElementById("fcevo-notice-msg");
-        if (!box || !link) return;
-        link.textContent = msg;
-        link.href = n.url || INSTALL_URL; // custom link if given
+        const tEl = document.getElementById("fcevo-notice-title");
+        const bEl = document.getElementById("fcevo-notice-body");
+        if (!box || !tEl || !bEl) return;
+        tEl.textContent = title;
+        if (n.url) tEl.href = n.url; else tEl.removeAttribute("href"); // title is a link only when a URL is set
+        bEl.textContent = body;
         box.dataset.noticeId = id;
         box.style.display = "";
       }
