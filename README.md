@@ -48,6 +48,11 @@ approach before you spend time on it.
 copyright / attribution notice (credit **nezygis** and link back to this
 project).
 
+## Privacy
+On load the script sends a single **anonymous** ping to a public hit counter so
+I can see roughly how many people use it. It's just a count — **no personal
+data, no cookies, no tracking**. Nothing else leaves your browser.
+
 ## ⚠️ Disclaimer
 Automating the EA FC web app is **against EA's Terms of Service** and can get
 your account banned. Use at your own risk. This is an unofficial fan tool, not

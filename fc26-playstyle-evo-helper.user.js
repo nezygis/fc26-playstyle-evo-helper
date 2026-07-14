@@ -41,6 +41,9 @@
   const VERSION = "2.1.3"; // keep in sync with the @version header above
   const REPO_URL = "https://github.com/nezygis/fc26-playstyle-evo-helper";
   const RAW_MAIN_URL = "https://raw.githubusercontent.com/nezygis/fc26-playstyle-evo-helper/main/fc26-playstyle-evo-helper.user.js";
+  // Anonymous load counter (no cookies, no PII — just a total tick). View at:
+  // https://abacus.jasoncameron.dev/get/nezygis-fc26-evo-helper/loads
+  const METRICS_HIT_URL = "https://abacus.jasoncameron.dev/hit/nezygis-fc26-evo-helper/loads";
   // Glory Hunters cards (Festival of Football rarity 109, or 104 "Red") can hold a
   // 4th PS+ via account-specific reward evos — everyone else caps at 3.
   const GH_RARITIES = new Set([104, 109]);
@@ -1078,6 +1081,7 @@
     log("Ready.", "head");
     if (ELIGIBLE_RARITIES.length) log("Search limited to " + ELIGIBLE_RARITIES.length + " eligible rarities (adjust via Rarity ▾).", "dim");
     checkForUpdate();
+    try { fetch(METRICS_HIT_URL).catch(() => {}); } catch (_) {} // anonymous load tick; best-effort, ignored on failure
   }
 
   // Compare dotted versions: 1 if a>b, -1 if a<b, 0 equal.
